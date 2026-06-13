@@ -41,12 +41,12 @@
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
-  /* Legacy vault compat */
-  --color-vault-bg: #07070F;
-  --color-vault-surface: #0D0D1A;
-  --color-vault-border: rgba(100, 100, 220, 0.1);
-  --color-vault-accent: #6366F1;
-  --color-vault-muted: #6060A0;
+  /* Legacy vault compat — mapped to shadcn tokens */
+  --color-vault-bg: var(--background);
+  --color-vault-surface: var(--card);
+  --color-vault-border: var(--border);
+  --color-vault-accent: var(--primary);
+  --color-vault-muted: var(--muted-foreground);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
