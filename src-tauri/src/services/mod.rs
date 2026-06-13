@@ -6,3 +6,4 @@ pub mod file_service;
 pub mod hash_service;
 pub mod retention_service;
 pub mod restore_service;
+pub mod scheduler_service;

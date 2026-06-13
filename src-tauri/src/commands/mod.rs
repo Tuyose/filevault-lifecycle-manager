@@ -5,3 +5,4 @@ pub mod archive_commands;
 pub mod scanner_commands;
 pub mod system_commands;
 pub mod trash_commands;
+pub mod watch_folder_commands;

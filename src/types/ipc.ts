@@ -82,3 +82,22 @@ export type DuplicateGroup = {
   total_wasted_bytes: number;
   files: DuplicateFile[];
 };
+
+export type WatchFolder = {
+  id: string;
+  path: string;
+  label: string;
+  enabled: boolean;
+  frequency: "daily" | "weekly" | "monthly";
+  preferred_weekday?: number;
+  preferred_hour: number;
+  preferred_minute: number;
+  last_scan_at?: string;
+  next_scan_at?: string;
+};
+
+export type SchedulerStatus = {
+  idle: boolean;
+  scanning: boolean;
+  next_scan_label: string;
+};

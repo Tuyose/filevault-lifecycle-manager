@@ -7,4 +7,5 @@ pub mod duplicate_detector;
 pub mod file_lifecycle;
 pub mod scan_controller;
 pub mod scanner;
+pub mod scheduler;
 pub mod trash;

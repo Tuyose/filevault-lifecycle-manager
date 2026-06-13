@@ -6,11 +6,13 @@ import type {
   ArchiveAck,
   DatabaseStatus,
   DuplicateGroup,
+  SchedulerStatus,
   ScanPreview,
   ScanRun,
   ScanStats,
   ScanSummary,
   TrashAck,
+  WatchFolder,
 } from "../types/ipc";
 
 export const ipc = {
@@ -29,6 +31,19 @@ export const ipc = {
     invoke<ArchiveAck>("archive_placeholder", { fileId }),
   trashPlaceholder: (fileId: string) =>
     invoke<TrashAck>("trash_placeholder", { fileId }),
+  // Watch folders
+  listWatchFolders: () => invoke<WatchFolder[]>("list_watch_folders"),
+  addWatchFolder: (args: { path: string; label: string; frequency: string; preferredWeekday?: number; preferredHour: number; preferredMinute: number }) =>
+    invoke<WatchFolder>("add_watch_folder", args),
+  updateWatchFolder: (args: { id: string; label: string; frequency: string; preferredWeekday?: number; preferredHour: number; preferredMinute: number }) =>
+    invoke<WatchFolder>("update_watch_folder", args),
+  deleteWatchFolder: (id: string) =>
+    invoke<void>("delete_watch_folder", { id }),
+  toggleWatchFolder: (id: string, enabled: boolean) =>
+    invoke<WatchFolder>("toggle_watch_folder", { id, enabled }),
+  runWatchFolderScan: (id: string) =>
+    invoke<void>("run_watch_folder_scan", { id }),
+  getSchedulerStatus: () => invoke<SchedulerStatus>("get_scheduler_status"),
 };
 
 export const dialogs = {

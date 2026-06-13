@@ -1,9 +1,4 @@
 //! Top-level library crate for the FileVault desktop app.
-//!
-//! Wires Tauri, plugins, command handlers, and shared application state
-//! (database pool, settings) together. Feature implementations live in
-//! their own modules (`core`, `services`, `db`, ...); this file should
-//! stay focused on composition.
 
 pub mod commands;
 pub mod core;
@@ -18,8 +13,10 @@ use std::sync::Arc;
 use tauri::Manager;
 
 use crate::core::scan_controller::ScanController;
+use crate::db::repositories::watch_folder_repository::WatchFolderRepository;
 use crate::db::Database;
 use crate::services::file_service::FileService;
+use crate::services::scheduler_service::{SchedulerService, SchedulerStatus};
 
 /// Shared, immutable application state handed to Tauri commands.
 #[derive(Clone)]
@@ -27,18 +24,26 @@ pub struct AppState {
     pub database: Arc<Database>,
     pub files: Arc<FileService>,
     pub scan_controller: Arc<ScanController>,
+    pub scheduler: Arc<SchedulerService>,
 }
 
 impl AppState {
     pub fn new(database: Arc<Database>) -> Self {
         let pool = database.pool().clone();
         let db_path = database.path().to_path_buf();
-        let files = Arc::new(FileService::with_db_path(pool, db_path));
+        let files = Arc::new(FileService::with_db_path(pool.clone(), db_path));
+        let repo = WatchFolderRepository::new(pool);
+        let scheduler = Arc::new(SchedulerService::new(repo, files.clone()));
         Self {
             database,
             files,
             scan_controller: Arc::new(ScanController::new()),
+            scheduler,
         }
+    }
+
+    pub async fn scheduler_status(&self) -> Result<SchedulerStatus, String> {
+        Ok(self.scheduler.status().await)
     }
 }
 
@@ -63,6 +68,10 @@ pub fn run() {
             database.run_migrations().expect("failed to run migrations");
 
             let state = AppState::new(Arc::new(database));
+
+            // Start the background scheduler
+            state.scheduler.start();
+
             app.manage(state);
 
             log::info!("FileVault started; db at {}", db_path.display());
@@ -79,6 +88,13 @@ pub fn run() {
             commands::scanner_commands::pause_scan,
             commands::scanner_commands::resume_scan,
             commands::scanner_commands::cancel_scan,
+            commands::watch_folder_commands::list_watch_folders,
+            commands::watch_folder_commands::add_watch_folder,
+            commands::watch_folder_commands::update_watch_folder,
+            commands::watch_folder_commands::delete_watch_folder,
+            commands::watch_folder_commands::toggle_watch_folder,
+            commands::watch_folder_commands::run_watch_folder_scan,
+            commands::watch_folder_commands::get_scheduler_status,
             commands::archive_commands::archive_placeholder,
             commands::trash_commands::trash_placeholder,
         ])

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { ipc } from "../../lib/ipc";
-import type { AppStatus, DatabaseStatus, DuplicateGroup, ScanRun, ScanStats } from "../../types/ipc";
+import type { AppStatus, DatabaseStatus, DuplicateGroup, ScanRun, ScanStats, SchedulerStatus } from "../../types/ipc";
 import { formatBytes } from "../../lib/folder-insights";
 import {
   generateRecommendations,
@@ -30,19 +30,21 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [healthExpanded, setHealthExpanded] = useState(false);
+  const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [app, db, stats, groups, history] = await Promise.all([
+        const [app, db, stats, groups, history, sched] = await Promise.all([
           ipc.getAppStatus(),
           ipc.getDatabaseStatus(),
           ipc.getScanStats().catch(() => null),
           ipc.getDuplicateGroups().catch(() => [] as DuplicateGroup[]),
           ipc.getScanHistory().catch(() => [] as ScanRun[]),
+          ipc.getSchedulerStatus().catch(() => null),
         ]);
-        if (!cancelled) setData({ app, db, stats: stats ?? null, groups: groups ?? [], history });
+        if (!cancelled) { setData({ app, db, stats: stats ?? null, groups: groups ?? [], history }); setScheduler(sched); }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -162,9 +164,16 @@ export function DashboardPage() {
               value={(data.stats?.total ?? 0).toString()}
               subtitle={data.stats ? formatBytes(data.stats.total_bytes) : ""}
               trend={data.history.map((r) => r.total_seen)}
-            />
-          </div>
-        </Section>
+              />
+              </div>
+
+              {scheduler && (
+              <div className="mt-2 flex items-center gap-3 text-xs text-vault-muted/60">
+                <span className={`inline-block h-2 w-2 rounded-full ${scheduler.scanning ? "bg-amber-400 animate-pulse" : scheduler.idle ? "bg-emerald-400" : "bg-slate-400"}`} />
+                <span>{scheduler.scanning ? "Auto-scan running" : scheduler.next_scan_label}</span>
+              </div>
+              )}
+              </Section>
       )}
 
       {/* ── 3. Trends ── */}

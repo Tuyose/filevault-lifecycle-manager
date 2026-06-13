@@ -6,3 +6,4 @@ pub mod duplicate_group;
 pub mod file_record;
 pub mod lifecycle_event;
 pub mod scan_run;
+pub mod watch_folder;
