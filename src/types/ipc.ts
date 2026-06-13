@@ -101,3 +101,22 @@ export type SchedulerStatus = {
   scanning: boolean;
   next_scan_label: string;
 };
+
+export type AnalyticsSnapshot = {
+  id: string;
+  created_at: string;
+  tracked_files: number;
+  total_size_bytes: number;
+  duplicate_groups: number;
+  duplicate_files: number;
+  reclaimable_bytes: number;
+  health_score: number;
+};
+
+export type HealthBreakdown = {
+  overall: number;
+  duplicateDensity: number;
+  storageEfficiency: number;
+  reclaimableRisk: number;
+  tips: string[];
+};

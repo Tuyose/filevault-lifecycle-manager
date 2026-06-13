@@ -58,7 +58,6 @@ pub async fn scan_folder(
     let (summary, status) = if let Ok(s) = &result {
         (s.clone(), ScanRunStatus::Completed)
     } else {
-        // Error: build a minimal run so we still record the attempt.
         let partial = ScanSummary {
             root: root.display().to_string(),
             ..Default::default()
@@ -67,7 +66,7 @@ pub async fn scan_folder(
     };
 
     let pool = state.database.pool().clone();
-    let repo = ScanRunRepository::new(pool);
+    let repo = ScanRunRepository::new(pool.clone());
     let run = ScanRun {
         id: Uuid::new_v4().to_string(),
         root_path: summary.root.clone(),
@@ -81,6 +80,14 @@ pub async fn scan_folder(
         status,
     };
     let _ = repo.insert(&run).await;
+
+    // Create analytics snapshot after every scan
+    if result.is_ok() {
+        let analytics = crate::services::analytics_service::AnalyticsService::new(pool);
+        if let Err(err) = analytics.create_snapshot().await {
+            log::warn!("failed to create analytics snapshot: {err}");
+        }
+    }
 
     result.map_err(|err| err.to_string())
 }

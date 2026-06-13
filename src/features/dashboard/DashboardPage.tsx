@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { ipc } from "../../lib/ipc";
-import type { AppStatus, DatabaseStatus, DuplicateGroup, ScanRun, ScanStats, SchedulerStatus } from "../../types/ipc";
+import type { AnalyticsSnapshot, AppStatus, DatabaseStatus, DuplicateGroup, ScanRun, ScanStats, SchedulerStatus } from "../../types/ipc";
 import { formatBytes } from "../../lib/folder-insights";
 import {
   generateRecommendations,
@@ -31,20 +31,22 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [healthExpanded, setHealthExpanded] = useState(false);
   const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsSnapshot[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [app, db, stats, groups, history, sched] = await Promise.all([
+        const [app, db, stats, groups, history, sched, an] = await Promise.all([
           ipc.getAppStatus(),
           ipc.getDatabaseStatus(),
           ipc.getScanStats().catch(() => null),
           ipc.getDuplicateGroups().catch(() => [] as DuplicateGroup[]),
           ipc.getScanHistory().catch(() => [] as ScanRun[]),
           ipc.getSchedulerStatus().catch(() => null),
+          ipc.getDashboardAnalytics().catch(() => [] as AnalyticsSnapshot[]),
         ]);
-        if (!cancelled) { setData({ app, db, stats: stats ?? null, groups: groups ?? [], history }); setScheduler(sched); }
+        if (!cancelled) { setData({ app, db, stats: stats ?? null, groups: groups ?? [], history }); setScheduler(sched); setAnalytics(an ?? []); }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -176,7 +178,58 @@ export function DashboardPage() {
               </Section>
       )}
 
-      {/* ── 3. Trends ── */}
+      {/* ── 3. Analytics ── */}
+      {analytics.length > 1 && (
+        <Section title="Analytics" subtitle="Last 30 snapshots">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <AnalyticsChartCard
+              label="Reclaimable Space"
+              data={analytics.map((a) => a.reclaimable_bytes)}
+              color="rgb(251, 191, 36)"
+              formatter={(v) => formatBytes(v)}
+            />
+            <AnalyticsChartCard
+              label="Health Score"
+              data={analytics.map((a) => a.health_score)}
+              color="rgb(94, 234, 212)"
+              formatter={(v) => `${v}/100`}
+              suffix={analytics.length >= 2 ? `${analytics[analytics.length - 1].health_score - analytics[0].health_score > 0 ? "+" : ""}${analytics[analytics.length - 1].health_score - analytics[0].health_score}` : undefined}
+            />
+            <AnalyticsChartCard
+              label="Tracked Files"
+              data={analytics.map((a) => a.tracked_files)}
+              color="rgb(148, 163, 184)"
+              formatter={(v) => v.toLocaleString()}
+            />
+            <AnalyticsChartCard
+              label="Duplicate Groups"
+              data={analytics.map((a) => a.duplicate_groups)}
+              color="rgb(244, 63, 94)"
+              formatter={(v) => v.toString()}
+            />
+          </div>
+        </Section>
+      )}
+
+      {analytics.length <= 1 && hasData && (
+        <Section title="Analytics">
+          <div className="rounded-[14px] border border-vault-border bg-vault-surface p-5 text-sm text-vault-muted">
+            Run more scans to unlock analytics charts.
+          </div>
+        </Section>
+      )}
+
+      {/* ── 4. Watch Folders ── */}
+      {scheduler && (
+        <Section title="Watch Folders">
+          <div className="flex items-center gap-3 rounded-[14px] border border-vault-border bg-vault-surface p-4 text-sm">
+            <span className={`inline-block h-2.5 w-2.5 rounded-full ${scheduler.scanning ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
+            <span className="text-slate-200">{scheduler.scanning ? "Auto-scan running" : scheduler.next_scan_label}</span>
+          </div>
+        </Section>
+      )}
+
+      {/* ── 5. Trends ── */}
       {data.history.length > 1 && (
         <Section title="Trends" subtitle="Last scans">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -319,6 +372,34 @@ function TrendCard({ label, data, color }: { label: string; data: number[]; colo
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs font-medium uppercase tracking-wider text-vault-muted/70">{label}</span>
         <MiniChart data={data} height={32} color={color} />
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsChartCard({ label, data, color, formatter, suffix }: {
+  label: string; data: number[]; color: string; formatter: (v: number) => string; suffix?: string;
+}) {
+  const current = data[data.length - 1] ?? 0;
+  const change = data.length >= 2 ? data[data.length - 1] - data[0] : 0;
+  return (
+    <div className="rounded-[14px] border border-vault-border bg-vault-surface p-4 transition-all duration-[180ms] hover:border-vault-border/80">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-wider text-vault-muted/70">{label}</div>
+          <div className="mt-1 text-lg font-semibold tracking-tight text-slate-100">{formatter(current)}</div>
+          {suffix !== undefined && (
+            <div className={`mt-0.5 text-xs ${Number(suffix) >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+              {suffix} this period
+            </div>
+          )}
+          {suffix === undefined && change !== 0 && (
+            <div className={`mt-0.5 text-xs ${change > 0 ? "text-emerald-300" : "text-rose-300"}`}>
+              {change > 0 ? "+" : ""}{formatter(Math.abs(change))} overall
+            </div>
+          )}
+        </div>
+        <MiniChart data={data} height={36} color={color} />
       </div>
     </div>
   );

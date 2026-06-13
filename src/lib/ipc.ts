@@ -2,10 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import type {
+  AnalyticsSnapshot,
   AppStatus,
   ArchiveAck,
   DatabaseStatus,
   DuplicateGroup,
+  HealthBreakdown,
   SchedulerStatus,
   ScanPreview,
   ScanRun,
@@ -44,6 +46,10 @@ export const ipc = {
   runWatchFolderScan: (id: string) =>
     invoke<void>("run_watch_folder_scan", { id }),
   getSchedulerStatus: () => invoke<SchedulerStatus>("get_scheduler_status"),
+  // Analytics
+  getDashboardAnalytics: () => invoke<AnalyticsSnapshot[]>("get_dashboard_analytics"),
+  getHealthBreakdown: () => invoke<HealthBreakdown>("get_health_breakdown"),
+  getScanTrends: () => invoke<AnalyticsSnapshot[]>("get_scan_trends"),
 };
 
 export const dialogs = {

@@ -121,6 +121,7 @@ fn days_in_month(year: i32, month: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{Timelike, Datelike, Weekday};
     use super::*;
 
     #[test]
