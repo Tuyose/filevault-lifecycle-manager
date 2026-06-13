@@ -47,3 +47,11 @@ export type ScanStats = {
   trashed: number;
   deleted: number;
 };
+
+export type ScanProgress = {
+  processed: number;
+  total_files: number;
+  current_path: string;
+  current_dir: string;
+  phase: "Counting" | "Scanning" | "Done";
+};

@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 
 import { dialogs, ipc } from "../../lib/ipc";
-import type { ScanStats, ScanSummary } from "../../types/ipc";
+import type { ScanProgress, ScanStats, ScanSummary } from "../../types/ipc";
 import { StatCard } from "../../components/ui/StatCard";
 
-type Phase = "idle" | "scanning" | "done" | "error";
+type Phase = "idle" | "counting" | "scanning" | "done" | "error";
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -32,6 +33,17 @@ export function ScannerPage() {
   const [stats, setStats] = useState<ScanStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Live progress state
+  const [progress, setProgress] = useState<ScanProgress | null>(null);
+  const unlistenRef = useRef<(() => void) | null>(null);
+
+  // Clean up event listener on unmount
+  useEffect(() => {
+    return () => {
+      unlistenRef.current?.();
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     ipc
@@ -39,12 +51,7 @@ export function ScannerPage() {
       .then((value) => {
         if (!cancelled) setStats(value);
       })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          // Non-fatal — surface as a banner if it ever happens.
-          console.warn("getScanStats failed", err);
-        }
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -62,13 +69,31 @@ export function ScannerPage() {
 
   async function handleScan() {
     if (!folder) return;
-    setPhase("scanning");
+
+    // Start listening for progress events
+    const unlisten = await listen<ScanProgress>("scan:progress", (event) => {
+      const p = event.payload;
+      setProgress(p);
+
+      if (p.phase === "Counting") {
+        setPhase("counting");
+      } else if (p.phase === "Scanning") {
+        setPhase("scanning");
+      } else if (p.phase === "Done") {
+        setPhase("done");
+      }
+    });
+    unlistenRef.current?.();
+    unlistenRef.current = unlisten;
+
+    setPhase("counting");
     setError(null);
     setSummary(null);
+    setProgress(null);
+
     try {
       const result = await ipc.scanFolder(folder);
       setSummary(result);
-      setPhase("done");
       const next = await ipc.getScanStats();
       setStats(next);
     } catch (err) {
@@ -76,6 +101,11 @@ export function ScannerPage() {
       setPhase("error");
     }
   }
+
+  const progressPercent =
+    progress && progress.total_files > 0
+      ? Math.round((progress.processed / progress.total_files) * 100)
+      : 0;
 
   return (
     <section className="flex h-full flex-col gap-6 p-8">
@@ -95,7 +125,9 @@ export function ScannerPage() {
               Folder
             </label>
             <div className="flex min-w-96 items-center gap-2 rounded-md border border-vault-border bg-vault-bg px-3 py-2 font-mono text-sm text-slate-200">
-              {folder ?? <span className="text-vault-muted">No folder selected</span>}
+              {folder ?? (
+                <span className="text-vault-muted">No folder selected</span>
+              )}
             </div>
           </div>
 
@@ -103,17 +135,22 @@ export function ScannerPage() {
             <button
               type="button"
               onClick={handlePickFolder}
-              className="rounded-md border border-vault-border bg-vault-bg px-3 py-2 text-sm text-slate-100 hover:border-vault-accent hover:text-vault-accent"
+              disabled={phase === "counting" || phase === "scanning"}
+              className="rounded-md border border-vault-border bg-vault-bg px-3 py-2 text-sm text-slate-100 transition-colors hover:border-vault-accent hover:text-vault-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
               Select folder
             </button>
             <button
               type="button"
               onClick={handleScan}
-              disabled={!folder || phase === "scanning"}
+              disabled={!folder || phase === "counting" || phase === "scanning"}
               className="rounded-md border border-vault-accent/40 bg-vault-accent/10 px-3 py-2 text-sm text-vault-accent transition-colors hover:bg-vault-accent/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {phase === "scanning" ? "Scanning…" : "Scan folder"}
+              {phase === "counting"
+                ? "Counting…"
+                : phase === "scanning"
+                  ? "Scanning…"
+                  : "Scan folder"}
             </button>
           </div>
         </div>
@@ -124,6 +161,57 @@ export function ScannerPage() {
           </div>
         )}
       </div>
+
+      {/* Progress section — shown live during scan */}
+      {(phase === "counting" || phase === "scanning") && progress && (
+        <div className="rounded-xl border border-vault-border bg-vault-surface p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between gap-4">
+                <h2 className="text-sm font-semibold text-slate-100">
+                  {phase === "counting"
+                    ? "Counting files…"
+                    : `Scanning ${progress.processed} of ${progress.total_files} files`}
+                </h2>
+                <span className="shrink-0 font-mono text-xs text-vault-accent">
+                  {progressPercent}%
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-vault-bg">
+                <div
+                  className="h-full rounded-full bg-vault-accent transition-all duration-300 ease-out"
+                  style={{
+                    width:
+                      phase === "counting"
+                        ? "100%"
+                        : `${progressPercent}%`,
+                    animation:
+                      phase === "counting"
+                        ? "shimmer 1.5s ease-in-out infinite"
+                        : "none",
+                  }}
+                />
+              </div>
+
+              {/* Current file / folder info */}
+              {phase === "scanning" && progress.current_path && (
+                <div className="mt-3 space-y-0.5 overflow-hidden text-xs text-vault-muted">
+                  <div className="truncate">
+                    <span className="text-vault-accent/70">file:</span>{" "}
+                    {progress.current_path}
+                  </div>
+                  <div className="truncate">
+                    <span className="text-vault-accent/70">dir: </span>{" "}
+                    {progress.current_dir}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {stats && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -144,13 +232,6 @@ export function ScannerPage() {
 }
 
 function ScanResultCard({ summary }: { summary: ScanSummary }) {
-  const tone =
-    summary.errors === 0
-      ? "ok"
-      : summary.inserted + summary.updated > 0
-        ? "warn"
-        : "default";
-
   return (
     <div className="rounded-xl border border-vault-border bg-vault-surface p-5">
       <div className="flex items-center justify-between">
@@ -164,9 +245,9 @@ function ScanResultCard({ summary }: { summary: ScanSummary }) {
         </div>
         <span
           className={
-            tone === "ok"
+            summary.errors === 0
               ? "rounded-md bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300"
-              : tone === "warn"
+              : summary.inserted + summary.updated > 0
                 ? "rounded-md bg-amber-500/10 px-2 py-1 text-xs text-amber-300"
                 : "rounded-md bg-vault-bg px-2 py-1 text-xs text-vault-muted"
           }

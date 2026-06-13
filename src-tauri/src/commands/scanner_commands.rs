@@ -1,15 +1,15 @@
 use std::path::PathBuf;
 
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
-use crate::core::scanner::ScanSummary;
+use crate::core::scanner::{ProgressCallback, ScanProgress, ScanSummary};
 use crate::db::repositories::file_repository::FileStats;
 use crate::errors::AppError;
 use crate::AppState;
 
 /// Placeholder for the legacy preview command. Kept so the previous
-/// wiring still resolves during the scanner MVP rollout. Real callers
-/// should use `scan_folder`.
+/// wiring still resolves. Real callers should use `scan_folder`.
 #[derive(Debug, Serialize)]
 pub struct ScanPreview {
     pub requested_path: String,
@@ -26,9 +26,11 @@ pub fn scan_folder_preview(path: String) -> ScanPreview {
 }
 
 /// Recursively scan `path` and persist metadata to the database.
-/// Returns a summary describing what happened.
+/// Streams `scan:progress` events so the frontend can show a live
+/// progress bar and the current file being processed.
 #[tauri::command]
 pub async fn scan_folder(
+    app: AppHandle,
     path: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<ScanSummary, String> {
@@ -37,9 +39,15 @@ pub async fn scan_folder(
     }
 
     let root = PathBuf::from(&path);
+
+    let app_clone = app.clone();
+    let on_progress: ProgressCallback = Box::new(move |progress: ScanProgress| {
+        let _ = app_clone.emit("scan:progress", &progress);
+    });
+
     state
         .files
-        .scan(&root)
+        .scan_with_progress(&root, on_progress)
         .await
         .map_err(|err| err.to_string())
 }

@@ -2,13 +2,15 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::fs;
 use walkdir::WalkDir;
 
 use crate::db::repositories::file_repository::{FileRepository, FileUpsert, UpsertOutcome};
 use crate::errors::{AppError, AppResult};
 use uuid::Uuid;
+
+// ── Public types ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct ScanSummary {
@@ -29,13 +31,35 @@ pub struct ScanErrorItem {
     pub message: String,
 }
 
-/// Engine that walks a directory, extracts metadata, and hands each
-/// file to the repository for persistence. Pure logic — no Tauri
-/// imports, no IPC types — so it can be unit-tested or invoked from a
-/// background worker in a later milestone.
+/// Streamed from Rust → frontend while a scan is running.
+/// `total_files` is resolved by a fast pre-count at the start so the
+/// UI can compute a meaningful percentage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanProgress {
+    pub processed: i64,
+    pub total_files: i64,
+    pub current_path: String,
+    pub current_dir: String,
+    pub phase: ProgressPhase,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProgressPhase {
+    Counting,
+    Scanning,
+    Done,
+}
+
+/// Opaque callback type that the scanner calls for each file. The
+/// command handler wires this to Tauri's event system.
+pub type ProgressCallback = Box<dyn Fn(ScanProgress) + Send + Sync>;
+
+// ── Scanner ───────────────────────────────────────────────────────
+
 pub struct Scanner {
     files: FileRepository,
     skip_paths: Vec<PathBuf>,
+    on_progress: Option<ProgressCallback>,
 }
 
 impl Scanner {
@@ -43,14 +67,19 @@ impl Scanner {
         Self {
             files,
             skip_paths: Vec::new(),
+            on_progress: None,
         }
     }
 
-    /// Add absolute paths whose descendants (or themselves) should be
-    /// excluded from the walk. Used to keep the SQLite database and
-    /// its WAL sidecars out of the scan results.
     pub fn with_skip_paths(mut self, paths: Vec<PathBuf>) -> Self {
         self.skip_paths = paths;
+        self
+    }
+
+    /// Register a callback invoked after every processed file so the
+    /// UI gets live progress updates.
+    pub fn with_progress_callback(mut self, cb: ProgressCallback) -> Self {
+        self.on_progress = Some(cb);
         self
     }
 
@@ -76,7 +105,20 @@ impl Scanner {
             ..Default::default()
         };
 
+        // ── Pre-count: fast walk to find total file count ──
+        let total_files = count_files(root, &self.skip_paths) as i64;
+        summary.total_seen = total_files;
+
+        self.emit(ScanProgress {
+            processed: 0,
+            total_files,
+            current_path: String::new(),
+            current_dir: root.display().to_string(),
+            phase: ProgressPhase::Scanning,
+        });
+
         let canonical_root = root.to_path_buf();
+        let mut processed: i64 = 0;
 
         for entry in WalkDir::new(&canonical_root)
             .follow_links(false)
@@ -88,9 +130,14 @@ impl Scanner {
                     if !dir_entry.file_type().is_file() {
                         continue;
                     }
-                    summary.total_seen += 1;
+                    let current_path = dir_entry.path().display().to_string();
+                    let parent_dir = dir_entry
+                        .path()
+                        .parent()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default();
 
-                    match process_file(&dir_entry.path(), &canonical_root).await {
+                    match process_file(dir_entry.path(), &canonical_root).await {
                         Ok(upsert) => {
                             summary.total_bytes += upsert.size_bytes;
                             match self.files.upsert(&upsert).await? {
@@ -102,12 +149,21 @@ impl Scanner {
                             summary.errors += 1;
                             if summary.error_samples.len() < 10 {
                                 summary.error_samples.push(ScanErrorItem {
-                                    path: dir_entry.path().display().to_string(),
+                                    path: current_path.clone(),
                                     message: err.to_string(),
                                 });
                             }
                         }
                     }
+
+                    processed += 1;
+                    self.emit(ScanProgress {
+                        processed,
+                        total_files,
+                        current_path,
+                        current_dir: parent_dir,
+                        phase: ProgressPhase::Scanning,
+                    });
                 }
                 Err(err) => {
                     summary.errors += 1;
@@ -126,9 +182,38 @@ impl Scanner {
         }
 
         summary.finished_at = Utc::now();
+
+        self.emit(ScanProgress {
+            processed,
+            total_files,
+            current_path: String::new(),
+            current_dir: String::new(),
+            phase: ProgressPhase::Done,
+        });
+
         Ok(summary)
     }
+
+    fn emit(&self, progress: ScanProgress) {
+        if let Some(ref cb) = self.on_progress {
+            cb(progress);
+        }
+    }
 }
+
+// ── Pre-count ─────────────────────────────────────────────────────
+
+fn count_files(root: &Path, skip_paths: &[PathBuf]) -> usize {
+    WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| !is_hidden(e.path()) && !is_skipped(e.path(), skip_paths))
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .count()
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
 
 fn is_hidden(path: &Path) -> bool {
     path.file_name()
@@ -149,7 +234,7 @@ fn is_skipped(path: &Path, skip_paths: &[PathBuf]) -> bool {
     false
 }
 
-async fn process_file(path: &Path, root: &Path) -> AppResult<FileUpsert> {
+async fn process_file(path: &Path, _root: &Path) -> AppResult<FileUpsert> {
     let metadata = fs::metadata(path).await?;
     if !metadata.is_file() {
         return Err(AppError::invalid(format!(
@@ -174,11 +259,10 @@ async fn process_file(path: &Path, root: &Path) -> AppResult<FileUpsert> {
     let modified_at = system_time_to_chrono(metadata.modified().ok());
 
     let current_path = normalize_path(path);
-    let original_path = derive_original_path(&current_path, root);
 
     Ok(FileUpsert {
         id: Uuid::new_v4().to_string(),
-        original_path,
+        original_path: current_path.clone(),
         current_path,
         file_name,
         extension,
@@ -187,15 +271,6 @@ async fn process_file(path: &Path, root: &Path) -> AppResult<FileUpsert> {
         modified_at,
         last_seen_at: Utc::now(),
     })
-}
-
-fn derive_original_path(current: &str, root: &Path) -> String {
-    // For the MVP the original path is the same as the current path —
-    // archive / move / rename features are out of scope and will
-    // repopulate `current_path` later. Keeping them identical now means
-    // a re-scan can correctly match the row.
-    let _ = root;
-    current.to_string()
 }
 
 fn normalize_path(path: &Path) -> String {

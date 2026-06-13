@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use sqlx::SqlitePool;
 
-use crate::core::scanner::{ScanSummary, Scanner};
+use crate::core::scanner::{ProgressCallback, ScanSummary, Scanner};
 use crate::db::repositories::file_repository::{FileRepository, FileStats};
 use crate::errors::AppResult;
 
@@ -17,9 +17,6 @@ pub struct FileService {
 }
 
 impl FileService {
-    /// Create a service with no DB-path skip-set. The scanner will
-    /// not automatically exclude any files on disk. Prefer
-    /// `with_db_path` in production.
     pub fn new(pool: SqlitePool) -> Self {
         let files = FileRepository::new(pool.clone());
         Self {
@@ -29,8 +26,6 @@ impl FileService {
         }
     }
 
-    /// Construct a service that knows about a database on disk so the
-    /// scanner can skip the SQLite file and its WAL sidecars.
     pub fn with_db_path(pool: SqlitePool, db_path: PathBuf) -> Self {
         let files = FileRepository::new(pool.clone());
         Self {
@@ -48,13 +43,25 @@ impl FileService {
         &self.pool
     }
 
-    pub async fn scan(&self, root: &Path) -> AppResult<ScanSummary> {
+    /// Scan with a progress callback. The callback is invoked after
+    /// every processed file so the UI gets live updates.
+    pub async fn scan_with_progress(
+        &self,
+        root: &Path,
+        on_progress: ProgressCallback,
+    ) -> AppResult<ScanSummary> {
         let mut scanner = Scanner::new(self.files.clone());
         if !self.db_path.as_os_str().is_empty() {
-            // Skip the database file itself plus any WAL sidecars.
             scanner = scanner.with_skip_paths(sidecar_paths(&self.db_path));
         }
+        scanner = scanner.with_progress_callback(on_progress);
         scanner.scan(root).await
+    }
+
+    /// Scan without progress (used from tests).
+    pub async fn scan(&self, root: &Path) -> AppResult<ScanSummary> {
+        let noop: ProgressCallback = Box::new(|_| {});
+        self.scan_with_progress(root, noop).await
     }
 
     pub async fn aggregate_stats(&self) -> AppResult<FileStats> {
@@ -66,10 +73,8 @@ impl FileService {
     }
 }
 
-/// Build the list of SQLite file paths that should be excluded from
-/// scans: the main `.db` plus the `-wal` and `-shm` sidecars.
 fn sidecar_paths(db_path: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
+    let mut out: Vec<PathBuf> = Vec::new();
     out.push(db_path.to_path_buf());
 
     let wal = with_suffix(db_path, "-wal");
