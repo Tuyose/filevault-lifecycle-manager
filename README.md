@@ -332,6 +332,16 @@ the single source of truth for state machine rules.
 
 ---
 
+## CI
+
+This repository uses GitHub Actions for:
+
+- **Frontend validation** — TypeScript check + Vite build on every push/PR
+- **Rust tests** — `cargo fmt`, `cargo test --all`, `cargo check --all-targets`
+- **Windows desktop build** — Manual `workflow_dispatch` producing MSI installer + portable `.exe`
+
+Workflows: `.github/workflows/ci.yml`, `.github/workflows/windows-build.yml`
+
 ## License
 
 TBD.
