@@ -150,7 +150,7 @@ export type RestoreResult = {
 };
 
 export type ArchiveInfo = {
-  root?: string;
-  archivedCount: number;
+  archivedFiles: number;
   archivedSizeBytes: number;
+  archiveRoot?: string;
 };

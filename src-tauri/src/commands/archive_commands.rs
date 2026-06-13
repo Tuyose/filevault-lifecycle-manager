@@ -16,10 +16,10 @@ pub fn archive_placeholder(file_id: String) -> ArchiveAck {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ArchiveInfo {
-    pub root: Option<String>,
-    pub archived_count: i64,
+pub struct ArchiveStats {
+    pub archived_files: i64,
     pub archived_size_bytes: i64,
+    pub archive_root: Option<String>,
 }
 
 #[tauri::command]
@@ -62,10 +62,10 @@ pub async fn list_archived_files(state: tauri::State<'_, AppState>) -> Result<Ve
 }
 
 #[tauri::command]
-pub async fn get_archive_info(state: tauri::State<'_, AppState>) -> Result<ArchiveInfo, String> {
+pub async fn get_archive_info(state: tauri::State<'_, AppState>) -> Result<ArchiveStats, String> {
     let pool = state.database.pool().clone();
     let root = archive_service::get_setting(&pool, "archive.root_dir").await.ok().flatten();
     let repo = crate::db::repositories::file_repository::FileRepository::new(pool.clone());
     let count = repo.count_by_status("archived").await.unwrap_or(0);
-    Ok(ArchiveInfo { root, archived_count: count, archived_size_bytes: 0 })
+    Ok(ArchiveStats { archive_root: root, archived_files: count, archived_size_bytes: 0 })
 }
