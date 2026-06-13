@@ -10,11 +10,13 @@ use crate::errors::{AppError, AppResult};
 use crate::models::file_record::FileRecord;
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ArchiveResult {
     pub file_id: String,
     pub original_path: String,
     pub archived_path: String,
     pub status: String,
+    pub archived_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,20 +94,32 @@ pub async fn archive_file(pool: &sqlx::SqlitePool, file_id: &str) -> AppResult<A
 
     // 1. Get file record
     let record = repo.find_by_id(file_id).await?
-        .ok_or_else(|| AppError::not_found(format!("file {file_id}")))?;
+        .ok_or_else(|| AppError::not_found(format!("File not found: {file_id}")))?;
 
     // 2. Verify status is active
     if record.status != crate::models::file_record::FileStatus::Active {
-        return Err(AppError::invalid("only active files can be archived"));
+        return Err(AppError::invalid("Only active files can be archived."));
     }
 
-    // 3. Verify archive root is configured
-    let archive_root = get_setting(pool, "archive.root_dir").await?
-        .ok_or_else(|| AppError::invalid("archive root directory is not configured. Please set it in Settings or the Archive page."))?;
+    // 3. Verify current_path exists and is a file
+    let src = PathBuf::from(&record.current_path);
+    if !src.exists() {
+        return Err(AppError::invalid("Source file does not exist."));
+    }
+    if !src.is_file() {
+        return Err(AppError::invalid("Only files can be archived, not directories."));
+    }
 
-    // 4. Build archive path
-    let filename = PathBuf::from(&record.current_path)
-        .file_name()
+    // 4. Verify archive root is configured
+    let archive_root = get_setting(pool, "archive.root_dir").await?
+        .ok_or_else(|| AppError::invalid("Archive root is not configured. Please set it in Settings or the Archive page."))?;
+
+    // 5. Validate archive root is still usable
+    let root_path = std::path::Path::new(&archive_root);
+    validate_archive_root(root_path).await?;
+
+    // 6. Build archive path
+    let filename = src.file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| format!("file_{file_id}"));
     let archived_path = PathBuf::from(&archive_root)
@@ -113,8 +127,12 @@ pub async fn archive_file(pool: &sqlx::SqlitePool, file_id: &str) -> AppResult<A
         .join(file_id)
         .join(&filename);
 
-    // 5. Safe move
-    let src = PathBuf::from(&record.current_path);
+    // 7. Verify destination does not already exist
+    if archived_path.exists() {
+        return Err(AppError::invalid("Archive destination already exists."));
+    }
+
+    // 8. Safe move
     safe_move(&src, &archived_path).await?;
 
     // 6. Update DB
@@ -132,7 +150,7 @@ pub async fn archive_file(pool: &sqlx::SqlitePool, file_id: &str) -> AppResult<A
     .bind(&record.current_path)
     .bind(&archived_str)
     .bind(now)
-    .bind(r#"{"source":"manual"}"#)
+    .bind(r#"{"source":"manual","archive_root":""#.to_string() + &archive_root + r#"","strategy":"safe_move"}"#)
     .execute(pool)
     .await;
 
@@ -141,6 +159,7 @@ pub async fn archive_file(pool: &sqlx::SqlitePool, file_id: &str) -> AppResult<A
         original_path: record.original_path,
         archived_path: archived_str,
         status: "archived".to_string(),
+        archived_at: now.to_rfc3339(),
     })
 }
 
