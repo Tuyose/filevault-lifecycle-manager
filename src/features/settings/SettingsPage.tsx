@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { dialogs, ipc } from "../../lib/ipc";
 import type { WatchFolder } from "../../types/ipc";
@@ -17,6 +18,7 @@ const FREQ_LABELS: Record<string, string> = {
 };
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const [folders, setFolders] = useState<WatchFolder[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -44,8 +46,20 @@ export function SettingsPage() {
     load();
   }
 
-  async function handleRunNow(id: string) {
-    await ipc.runWatchFolderScan(id);
+  async function handleRunNow(wf: WatchFolder) {
+    // Navigate to Files page with scan intent — the scanner will auto-start
+    navigate("/scanner", {
+      state: {
+        scanIntent: {
+          source: "watch-folder",
+          watchFolderId: wf.id,
+          path: wf.path,
+          autoStart: true,
+        },
+      },
+    });
+    // Also run the backend scan-side update
+    ipc.runWatchFolderScan(wf.id).catch(() => {});
     load();
   }
 
@@ -111,7 +125,7 @@ export function SettingsPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleRunNow(wf.id)}
+                      onClick={() => handleRunNow(wf)}
                       className="rounded-[10px] bg-vault-accent/10 px-2.5 py-1.5 text-xs text-vault-accent hover:bg-vault-accent/20"
                     >
                       Run now
