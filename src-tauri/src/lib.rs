@@ -13,23 +13,20 @@ pub mod models;
 pub mod services;
 
 use std::path::PathBuf;
-
 use std::sync::Arc;
 
 use tauri::Manager;
 
+use crate::core::scan_controller::ScanController;
 use crate::db::Database;
 use crate::services::file_service::FileService;
 
 /// Shared, immutable application state handed to Tauri commands.
-///
-/// Cloning is cheap — the inner `Database` and `FileService` are
-/// internally reference counted, so we can hand them to every command
-/// without lifetime gymnastics.
 #[derive(Clone)]
 pub struct AppState {
     pub database: Arc<Database>,
     pub files: Arc<FileService>,
+    pub scan_controller: Arc<ScanController>,
 }
 
 impl AppState {
@@ -37,14 +34,17 @@ impl AppState {
         let pool = database.pool().clone();
         let db_path = database.path().to_path_buf();
         let files = Arc::new(FileService::with_db_path(pool, db_path));
-        Self { database, files }
+        Self {
+            database,
+            files,
+            scan_controller: Arc::new(ScanController::new()),
+        }
     }
 }
 
 /// Entry point invoked from `main.rs`.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialise structured logging early so any setup error is visible.
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .try_init();
 
@@ -52,7 +52,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // Resolve a per-app data directory and bootstrap the SQLite file there.
             let data_dir: PathBuf = app
                 .path()
                 .app_data_dir()
@@ -75,6 +74,9 @@ pub fn run() {
             commands::scanner_commands::scan_folder,
             commands::scanner_commands::scan_folder_preview,
             commands::scanner_commands::get_scan_stats,
+            commands::scanner_commands::pause_scan,
+            commands::scanner_commands::resume_scan,
+            commands::scanner_commands::cancel_scan,
             commands::archive_commands::archive_placeholder,
             commands::trash_commands::trash_placeholder,
         ])

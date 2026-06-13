@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use sqlx::SqlitePool;
 
+use crate::core::scan_controller::ScanController;
 use crate::core::scanner::{ProgressCallback, ScanSummary, Scanner};
 use crate::db::repositories::file_repository::{FileRepository, FileStats};
 use crate::errors::AppResult;
@@ -43,25 +45,30 @@ impl FileService {
         &self.pool
     }
 
-    /// Scan with a progress callback. The callback is invoked after
-    /// every processed file so the UI gets live updates.
+    /// Scan with a progress callback and optional controller for
+    /// pause/cancel support. The callback is invoked after every
+    /// processed file so the UI gets live updates.
     pub async fn scan_with_progress(
         &self,
         root: &Path,
         on_progress: ProgressCallback,
+        controller: Option<Arc<ScanController>>,
     ) -> AppResult<ScanSummary> {
         let mut scanner = Scanner::new(self.files.clone());
         if !self.db_path.as_os_str().is_empty() {
             scanner = scanner.with_skip_paths(sidecar_paths(&self.db_path));
         }
         scanner = scanner.with_progress_callback(on_progress);
+        if let Some(ctrl) = controller {
+            scanner = scanner.with_controller(ctrl);
+        }
         scanner.scan(root).await
     }
 
     /// Scan without progress (used from tests).
     pub async fn scan(&self, root: &Path) -> AppResult<ScanSummary> {
         let noop: ProgressCallback = Box::new(|_| {});
-        self.scan_with_progress(root, noop).await
+        self.scan_with_progress(root, noop, None).await
     }
 
     pub async fn aggregate_stats(&self) -> AppResult<FileStats> {

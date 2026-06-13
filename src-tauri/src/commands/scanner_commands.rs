@@ -8,8 +8,7 @@ use crate::db::repositories::file_repository::FileStats;
 use crate::errors::AppError;
 use crate::AppState;
 
-/// Placeholder for the legacy preview command. Kept so the previous
-/// wiring still resolves. Real callers should use `scan_folder`.
+/// Placeholder — kept for backward compat. See `scan_folder`.
 #[derive(Debug, Serialize)]
 pub struct ScanPreview {
     pub requested_path: String,
@@ -18,7 +17,6 @@ pub struct ScanPreview {
 
 #[tauri::command]
 pub fn scan_folder_preview(path: String) -> ScanPreview {
-    log::info!("scan_folder_preview requested for {path}");
     ScanPreview {
         requested_path: path,
         would_scan: true,
@@ -26,8 +24,8 @@ pub fn scan_folder_preview(path: String) -> ScanPreview {
 }
 
 /// Recursively scan `path` and persist metadata to the database.
-/// Streams `scan:progress` events so the frontend can show a live
-/// progress bar and the current file being processed.
+/// Streams `scan:progress` events. Respects pause / cancel via the
+/// scan controller in AppState.
 #[tauri::command]
 pub async fn scan_folder(
     app: AppHandle,
@@ -40,6 +38,10 @@ pub async fn scan_folder(
 
     let root = PathBuf::from(&path);
 
+    // Reset the controller so a previous cancel/pause doesn't linger.
+    let controller = state.scan_controller.clone();
+    controller.reset();
+
     let app_clone = app.clone();
     let on_progress: ProgressCallback = Box::new(move |progress: ScanProgress| {
         let _ = app_clone.emit("scan:progress", &progress);
@@ -47,7 +49,7 @@ pub async fn scan_folder(
 
     state
         .files
-        .scan_with_progress(&root, on_progress)
+        .scan_with_progress(&root, on_progress, Some(controller))
         .await
         .map_err(|err| err.to_string())
 }
@@ -62,4 +64,26 @@ pub async fn get_scan_stats(
         .aggregate_stats()
         .await
         .map_err(|err| err.to_string())
+}
+
+/// Pause the running scan (if any).
+#[tauri::command]
+pub fn pause_scan(state: tauri::State<'_, AppState>) {
+    state.scan_controller.pause();
+    log::info!("scan paused by user");
+}
+
+/// Resume a paused scan.
+#[tauri::command]
+pub fn resume_scan(state: tauri::State<'_, AppState>) {
+    state.scan_controller.resume();
+    log::info!("scan resumed by user");
+}
+
+/// Cancel the running scan. The scanner will stop at the next file
+/// boundary and return a partial summary.
+#[tauri::command]
+pub fn cancel_scan(state: tauri::State<'_, AppState>) {
+    state.scan_controller.cancel();
+    log::info!("scan cancelled by user");
 }

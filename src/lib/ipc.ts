@@ -18,6 +18,9 @@ export const ipc = {
     invoke<ScanPreview>("scan_folder_preview", { path }),
   scanFolder: (path: string) => invoke<ScanSummary>("scan_folder", { path }),
   getScanStats: () => invoke<ScanStats>("get_scan_stats"),
+  pauseScan: () => invoke<void>("pause_scan"),
+  resumeScan: () => invoke<void>("resume_scan"),
+  cancelScan: () => invoke<void>("cancel_scan"),
   archivePlaceholder: (fileId: string) =>
     invoke<ArchiveAck>("archive_placeholder", { fileId }),
   trashPlaceholder: (fileId: string) =>

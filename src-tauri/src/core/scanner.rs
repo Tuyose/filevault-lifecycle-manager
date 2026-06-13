@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
@@ -6,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 use walkdir::WalkDir;
 
+use crate::core::scan_controller::ScanController;
 use crate::db::repositories::file_repository::{FileRepository, FileUpsert, UpsertOutcome};
 use crate::errors::{AppError, AppResult};
 use uuid::Uuid;
@@ -60,6 +62,7 @@ pub struct Scanner {
     files: FileRepository,
     skip_paths: Vec<PathBuf>,
     on_progress: Option<ProgressCallback>,
+    controller: Option<Arc<ScanController>>,
 }
 
 impl Scanner {
@@ -68,6 +71,7 @@ impl Scanner {
             files,
             skip_paths: Vec::new(),
             on_progress: None,
+            controller: None,
         }
     }
 
@@ -76,10 +80,14 @@ impl Scanner {
         self
     }
 
-    /// Register a callback invoked after every processed file so the
-    /// UI gets live progress updates.
     pub fn with_progress_callback(mut self, cb: ProgressCallback) -> Self {
         self.on_progress = Some(cb);
+        self
+    }
+
+    /// Attach a scan controller so the UI can pause / resume / cancel.
+    pub fn with_controller(mut self, controller: Arc<ScanController>) -> Self {
+        self.controller = Some(controller);
         self
     }
 
@@ -164,6 +172,16 @@ impl Scanner {
                         current_dir: parent_dir,
                         phase: ProgressPhase::Scanning,
                     });
+
+                    // Honour pause / cancel every file boundary
+                    if let Some(ref ctrl) = self.controller {
+                        if ctrl.is_cancelled() {
+                            break;
+                        }
+                        if !ctrl.wait_if_paused().await {
+                            break;
+                        }
+                    }
                 }
                 Err(err) => {
                     summary.errors += 1;
