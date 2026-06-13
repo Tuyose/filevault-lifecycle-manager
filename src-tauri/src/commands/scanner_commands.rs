@@ -137,9 +137,41 @@ pub async fn scan_folder(
     let controller = state.scan_controller.clone();
     controller.reset();
 
+    // Populate ScanJobManager so GlobalActivityBar and polls can see this scan
+    let job_id = Uuid::new_v4().to_string();
+    state.scan_job_manager.set(ScanJob {
+        id: job_id,
+        path: path.clone(),
+        source: ScanSource::Manual,
+        watch_folder_id: None,
+        status: ScanJobStatus::Counting,
+        started_at: Some(chrono::Utc::now()),
+        finished_at: None,
+        processed: 0,
+        total_files: 0,
+        current_path: None,
+        current_dir: None,
+        error_message: None,
+    }).await;
+
     let result = state.files
-        .scan_with_progress(&root, Box::new({ let a = app.clone(); move |p| { let _ = a.emit("scan:progress", &p); } }), Some(controller.clone()))
+        .scan_with_progress(&root, Box::new({
+            let a = app.clone();
+            let mgr = state.scan_job_manager.clone();
+            move |p: ScanProgress| {
+                let _ = a.emit("scan:progress", &p);
+                // Fire-and-forget update — don't block the scan loop
+                let mgr2 = mgr.clone();
+                let p2 = p.clone();
+                tokio::task::spawn(async move {
+                    mgr2.update_progress(p2.processed, p2.total_files, Some(p2.current_path), Some(p2.current_dir)).await;
+                });
+            }
+        }), Some(controller.clone()))
         .await;
+
+    // Update final status
+    state.scan_job_manager.update_status(if result.is_ok() { ScanJobStatus::Completed } else { ScanJobStatus::Error }).await;
 
     if let Ok(ref summary) = result {
         let pool = state.database.pool().clone();

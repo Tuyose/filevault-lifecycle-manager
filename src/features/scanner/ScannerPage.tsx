@@ -1,17 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { motion } from "motion/react";
-import { listen } from "@tauri-apps/api/event";
 import { FolderSearch, Play, Pause, Square, Clock, HardDrive, FileText } from "lucide-react";
 
+import { useScanJob } from "../scan/scan-store";
 import { dialogs, ipc } from "../../lib/ipc";
-import type { DuplicateGroup, ScanProgress, ScanRun } from "../../types/ipc";
+import type { DuplicateGroup, ScanRun } from "../../types/ipc";
 import { formatBytes, shortenPath, formatTime } from "../../lib/folder-insights";
 import { PageShell } from "../../components/layout/PageShell";
 
-type Phase = "idle" | "counting" | "scanning" | "paused" | "done" | "error";
-
-// Extend WindowEventMap for typed location state
 interface ScanIntent {
   source: string;
   watchFolderId?: string;
@@ -22,60 +19,52 @@ interface ScanIntent {
 export function ScannerPage() {
   const location = useLocation();
   const intent = (location.state as { scanIntent?: ScanIntent })?.scanIntent;
+  const { job, progress, isActive, startScan, pauseScan, resumeScan, cancelScan } = useScanJob();
 
   const [folder, setFolder] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [history, setHistory] = useState<ScanRun[]>([]);
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
-  const [startTime] = useState(Date.now);
-  const unlistenRef = useRef<(() => void) | null>(null);
   const intentConsumed = useRef(false);
+  const startTimeRef = useRef(Date.now());
 
-  // Detect scan intent from navigation state (Watch Folder "Run now")
+  // Auto-start from Watch Folder "Run now" intent
   useEffect(() => {
     if (intent && !intentConsumed.current) {
       intentConsumed.current = true;
       setFolder(intent.path);
-      // Auto-start scan after a brief delay so UI mounts
-      const t = setTimeout(() => startScan(intent.path), 100);
+      const t = setTimeout(() => { startScan(intent.path, intent.source as "watch-folder" | "manual", intent.watchFolderId); }, 100);
       return () => clearTimeout(t);
     }
-  }, [intent]);
+  }, [intent, startScan]);
+
+  // Sync folder from active job
+  useEffect(() => {
+    if (job?.path && !folder) setFolder(job.path);
+  }, [job?.path]);
 
   useEffect(() => {
     ipc.getScanHistory().catch(() => []).then(setHistory);
     ipc.getDuplicateGroups().catch(() => []).then(setGroups);
   }, []);
 
+  // Refresh data after scan completes
+  useEffect(() => {
+    if (job?.status === "completed" || job?.status === "cancelled" || job?.status === "error") {
+      Promise.all([
+        ipc.getScanHistory().catch(() => [] as ScanRun[]),
+        ipc.getDuplicateGroups().catch(() => [] as DuplicateGroup[]),
+      ]).then(([h, g]) => { setHistory(h ?? []); setGroups(g ?? []); });
+    }
+  }, [job?.status]);
+
   async function handlePick() {
     const picked = await dialogs.pickFolder();
     if (picked) setFolder(picked);
   }
 
-  async function startScan(path: string) {
-    if (!path) return;
-    const unlisten = await listen<ScanProgress>("scan:progress", (e) => {
-      const p = e.payload; setProgress(p);
-      if (p.phase === "Counting") setPhase("counting");
-      else if (p.phase === "Scanning") setPhase("scanning");
-      else if (p.phase === "Done") setPhase("done");
-    });
-    unlistenRef.current?.();
-    unlistenRef.current = unlisten;
-    setPhase("counting"); setError(null); setProgress(null);
-    try {
-      await ipc.scanFolder(path);
-      const [h, g] = await Promise.all([ipc.getScanHistory().catch(() => []), ipc.getDuplicateGroups().catch(() => [])]);
-      setHistory(h); setGroups(g);
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-  }
-
   const pct = progress && progress.total_files > 0
     ? Math.round((progress.processed / progress.total_files) * 100) : 0;
-  const isRunning = phase === "counting" || phase === "scanning" || phase === "paused";
-  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
   const rate = elapsed > 0 && progress ? Math.round(progress.processed / elapsed) : 0;
 
   const latestRun = history.length > 0 ? history[0] : null;
@@ -90,7 +79,7 @@ export function ScannerPage() {
       ) : undefined}
     >
       <div className="flex flex-col gap-6">
-        {/* Section 1: Command Center */}
+        {/* Command Center */}
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.02 }}
           className="overflow-hidden rounded-2xl" style={{ background: "linear-gradient(135deg, #0F0F20 0%, #0D0D1A 60%, #0A0A18 100%)", border: "1px solid rgba(99,102,241,0.15)", boxShadow: "0 0 60px rgba(99,102,241,0.04)" }}>
           <div className="p-6">
@@ -102,37 +91,37 @@ export function ScannerPage() {
                 </div>
                 <div className="mt-3 flex items-center gap-3">
                   <div className="min-w-0 flex-1 rounded-lg px-4 py-2.5 font-mono text-sm"
-                    style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(100,100,220,0.12)", color: folder ? "#EDEDFD" : "#6060A0" }}>
-                    {folder ?? "No folder selected"}
+                    style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(100,100,220,0.12)", color: folder || job?.path ? "#EDEDFD" : "#6060A0" }}>
+                    {folder ?? job?.path ?? "No folder selected"}
                   </div>
-                  <button onClick={handlePick} disabled={isRunning}
+                  <button onClick={handlePick} disabled={isActive}
                     className="cursor-pointer rounded-lg px-3 py-2.5 text-xs font-medium transition-all duration-150 disabled:opacity-40"
                     style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", color: "#818CF8" }}>
                     Select folder
                   </button>
-                  {isRunning ? (
+                  {isActive ? (
                     <div className="flex gap-1.5">
-                      {phase === "paused" ? (
-                        <button onClick={() => { ipc.resumeScan(); setPhase("scanning"); }}
+                      {job?.status === "paused" ? (
+                        <button onClick={() => { resumeScan(); }}
                           className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-medium"
                           style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", color: "#10B981" }}>
                           <Play size={12} /> Resume
                         </button>
                       ) : (
-                        <button onClick={() => { ipc.pauseScan(); setPhase("paused"); }}
+                        <button onClick={() => { pauseScan(); }}
                           className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-medium"
                           style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)", color: "#F59E0B" }}>
                           <Pause size={12} /> Pause
                         </button>
                       )}
-                      <button onClick={() => { ipc.cancelScan(); setPhase("idle"); }}
+                      <button onClick={() => { cancelScan(); }}
                         className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-medium"
                         style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", color: "#EF4444" }}>
                         <Square size={12} /> Stop
                       </button>
                     </div>
                   ) : (
-                    <button onClick={() => startScan(folder!)} disabled={!folder}
+                    <button onClick={() => startScan(folder!, "manual")} disabled={!folder}
                       className="flex cursor-pointer items-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-medium transition-all duration-150 disabled:opacity-40"
                       style={{ background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.3)", color: "#A5B4FC" }}>
                       <Play size={12} /> Scan folder
@@ -142,20 +131,14 @@ export function ScannerPage() {
                 <p className="mt-2 text-xs" style={{ color: "#6060A0" }}>All processing is local — nothing leaves your machine.</p>
               </div>
             </div>
-
-            {error && (
-              <div className="mt-4 rounded-lg px-4 py-2 text-sm" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#FCA5A5" }}>
-                {error}
-              </div>
-            )}
           </div>
         </motion.div>
 
-        {/* Section 2: Live Scan Performance */}
-        {isRunning && progress && (
+        {/* Live Progress */}
+        {isActive && progress && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             className="rounded-2xl p-6" style={{ background: "rgba(99,102,241,0.04)", border: "1px solid rgba(99,102,241,0.1)" }}>
-            {phase === "paused" && (
+            {job?.status === "paused" && (
               <div className="mb-3 rounded-lg px-3 py-1.5 text-center text-xs font-semibold tracking-widest"
                 style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B" }}>PAUSED</div>
             )}
@@ -184,7 +167,7 @@ export function ScannerPage() {
           </motion.div>
         )}
 
-        {/* Section 3: Last Scan Summary */}
+        {/* Last Scan Summary */}
         {latestRun && (
           <div>
             <h3 className="mb-3 text-sm font-semibold" style={{ color: "#EDEDFD" }}>Last Scan Summary</h3>
@@ -199,7 +182,7 @@ export function ScannerPage() {
           </div>
         )}
 
-        {/* Section 4: Folder Intelligence */}
+        {/* Folder Intelligence */}
         {groups.length > 0 && (
           <div>
             <h3 className="mb-3 text-sm font-semibold" style={{ color: "#EDEDFD" }}>Folder Intelligence</h3>
@@ -219,7 +202,7 @@ export function ScannerPage() {
           </div>
         )}
 
-        {/* Section 5: Recent Scans */}
+        {/* Recent Scans */}
         {history.length > 1 && (
           <div>
             <h3 className="mb-3 text-sm font-semibold" style={{ color: "#EDEDFD" }}>Recent Scans</h3>
