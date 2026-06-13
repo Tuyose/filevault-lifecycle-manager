@@ -48,6 +48,22 @@ function sumFolderGroups(folders: Map<string, DuplicateGroup[]>): number {
   return total;
 }
 
+function buildCategories(groups: DuplicateGroup[]): { category: string; count: number; files: number; bytes: number }[] {
+  const byCat = new Map<string, { count: number; files: number; bytes: number }>();
+  for (const group of groups) {
+    const sample = group.files[0]?.path ?? "";
+    const cat = fileCategory(sample);
+    const entry = byCat.get(cat) ?? { count: 0, files: 0, bytes: 0 };
+    entry.count += 1;
+    entry.files += group.total_files;
+    entry.bytes += group.total_wasted_bytes;
+    byCat.set(cat, entry);
+  }
+  return Array.from(byCat.entries())
+    .map(([category, data]) => ({ category, ...data }))
+    .sort((a, b) => b.bytes - a.bytes);
+}
+
 export function DuplicatesPage() {
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [roots, setRoots] = useState<string[]>([]);
@@ -165,6 +181,60 @@ export function DuplicatesPage() {
             }`}>{c === "all" ? "All types" : c}</button>
         ))}
       </div>
+
+      {/* ── Top Duplicate Categories ── */}
+      {filtered.length > 0 && (
+        <div>
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-vault-muted/70">Top Duplicate Categories</h3>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            {buildCategories(filtered).slice(0, 5).map((cat) => (
+              <button
+                key={cat.category}
+                type="button"
+                onClick={() => setCatFilter(cat.category as any)}
+                className={`rounded-[14px] border p-4 text-left transition-all duration-[180ms] ${
+                  catFilter === cat.category
+                    ? "border-vault-accent/30 bg-vault-accent/8"
+                    : "border-vault-border bg-vault-surface hover:border-vault-border/80"
+                }`}
+              >
+                <div className="text-sm font-semibold text-slate-100">{cat.category}</div>
+                <div className="mt-1 text-xs text-vault-muted">{cat.count} groups</div>
+                <div className="mt-0.5 font-mono text-xs text-amber-300">{formatBytes(cat.bytes)}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Folder Ranking ── */}
+      {hotspots.length > 0 && (
+        <div>
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-vault-muted/70">Top Duplicate Folders</h3>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {hotspots.slice(0, 6).map((h) => {
+              const maxH = hotspots.length > 0 ? hotspots[0].duplicate_bytes : 0;
+              const pct = maxH > 0 ? (h.duplicate_bytes / maxH) * 100 : 0;
+              return (
+                <div key={h.path} className="flex items-center gap-3 rounded-[10px] bg-vault-surface/40 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-mono text-xs text-slate-200" title={h.path}>
+                      {shortenPath(h.path, 3)}
+                    </div>
+                    <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-vault-bg">
+                      <div className="h-full rounded-full bg-amber-500/40" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="font-mono text-xs font-semibold text-amber-300">{formatBytes(h.duplicate_bytes)}</div>
+                    <div className="text-[11px] text-vault-muted/50">{h.duplicate_files} files</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Root-first grouping ── */}
       {sortedRoots.length === 0 && (
