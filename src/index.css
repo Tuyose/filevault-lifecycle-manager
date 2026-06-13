@@ -104,6 +104,51 @@
   --glow-amber: rgba(245, 158, 11, 0.15);
 }
 
+/* Light mode overrides */
+.light {
+  --font-size: 14px;
+  --background: #F8F8FC;
+  --foreground: #1A1A2E;
+  --card: #FFFFFF;
+  --card-foreground: #1A1A2E;
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1A2E;
+  --primary: #6366F1;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F0F0F5;
+  --secondary-foreground: #1A1A2E;
+  --muted: #F0F0F5;
+  --muted-foreground: #7070A0;
+  --accent: #6366F1;
+  --accent-foreground: #FFFFFF;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --border: rgba(0, 0, 0, 0.08);
+  --input: rgba(0, 0, 0, 0.04);
+  --ring: #6366F1;
+  --chart-1: #6366F1;
+  --chart-2: #10B981;
+  --chart-3: #F59E0B;
+  --chart-4: #3B82F6;
+  --chart-5: #EC4899;
+  --sidebar: #F0F0F5;
+  --sidebar-foreground: #1A1A2E;
+  --sidebar-primary: #6366F1;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #FFFFFF;
+  --sidebar-accent-foreground: #1A1A2E;
+  --sidebar-border: rgba(0, 0, 0, 0.06);
+  --sidebar-ring: #6366F1;
+  --surface-1: #FFFFFF;
+  --surface-2: #F5F5FA;
+  --surface-3: #EEEEF5;
+  --color-vault-bg: #F8F8FC;
+  --color-vault-surface: #FFFFFF;
+  --color-vault-border: rgba(0, 0, 0, 0.08);
+  --color-vault-accent: #6366F1;
+  --color-vault-muted: #7070A0;
+}
+
 /* Base layer */
 @layer base {
   *, *::before, *::after {
