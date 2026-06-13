@@ -4,8 +4,10 @@
 
 pub mod analytics_service;
 pub mod archive_service;
+pub mod file_move_service;
 pub mod file_service;
 pub mod hash_service;
 pub mod retention_service;
 pub mod restore_service;
 pub mod scheduler_service;
+pub mod trash_service;

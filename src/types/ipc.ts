@@ -154,3 +154,24 @@ export type ArchiveInfo = {
   archivedSizeBytes: number;
   archiveRoot?: string;
 };
+
+export type TrashStats = {
+  trashedFiles: number;
+  trashedSizeBytes: number;
+  retentionDays: number;
+};
+
+export type TrashResult = {
+  fileId: string;
+  previousPath: string;
+  trashedPath: string;
+  status: "trashed";
+  trashedAt: string;
+};
+
+export type RestoreTrashResult = {
+  fileId: string;
+  restoredPath: string;
+  status: "active";
+  restoredAt: string;
+};

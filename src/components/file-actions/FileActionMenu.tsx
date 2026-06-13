@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, FolderOpen, FileSearch, Copy, Check } from "lucide-react";
+import { Archive, FolderOpen, FileSearch, Copy, Check, Trash2 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 
 type Props = {
@@ -13,10 +13,13 @@ type Props = {
 
 export function FileActionMenu({ fileId, fileName, status, hasArchiveRoot, onArchived, onError }: Props) {
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showTrashConfirm, setShowTrashConfirm] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [trashing, setTrashing] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const canArchive = status === "active" && hasArchiveRoot;
+  const canTrash = (status === "active" || status === "archived") && hasArchiveRoot;
   const filesExist = status !== "deleted";
 
   const archiveTooltip = !hasArchiveRoot
@@ -36,6 +39,17 @@ export function FileActionMenu({ fileId, fileName, status, hasArchiveRoot, onArc
     } catch (err) {
       onError?.(err instanceof Error ? err.message : String(err));
     } finally { setArchiving(false); }
+  }
+
+  async function handleTrash() {
+    setTrashing(true);
+    try {
+      await ipc.moveFileToTrash(fileId);
+      setShowTrashConfirm(false);
+      onArchived?.();
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : String(err));
+    } finally { setTrashing(false); }
   }
 
   async function handleCopyPath() {
@@ -61,6 +75,17 @@ export function FileActionMenu({ fileId, fileName, status, hasArchiveRoot, onArc
           style={{ color: canArchive ? "#818CF8" : "#6060A0" }}
         >
           <Archive size={13} />
+        </button>
+
+        {/* Move to Trash */}
+        <button
+          onClick={() => { if (canTrash) setShowTrashConfirm(true); }}
+          disabled={!canTrash}
+          title={status === "trashed" ? "Already in trash" : status === "active" || status === "archived" ? "Move to trash" : `Cannot trash: status is ${status}`}
+          className="rounded-md p-1.5 text-xs transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-30 hover:bg-white/5"
+          style={{ color: canTrash ? "#F59E0B" : "#6060A0" }}
+        >
+          <Trash2 size={13} />
         </button>
 
         {/* Reveal in Explorer */}
@@ -96,7 +121,32 @@ export function FileActionMenu({ fileId, fileName, status, hasArchiveRoot, onArc
         </button>
       </div>
 
-      {/* Confirmation dialog */}
+      {/* Trash confirmation dialog */}
+      {showTrashConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
+          onClick={() => setShowTrashConfirm(false)}>
+          <div className="rounded-2xl p-6 shadow-2xl" style={{ background: "#0D0D1A", border: "1px solid rgba(245,158,11,0.15)", maxWidth: 380 }}
+            onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#EDEDFD" }}>Move this file to trash?</h3>
+            <p style={{ fontSize: 13, color: "#6060A0", marginTop: 6 }}>
+              {fileName && <><strong style={{ color: "#8080B0" }}>{fileName}</strong> will be </>}
+              moved to FileVault Trash. You can restore it later. Nothing is permanently deleted.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button onClick={() => setShowTrashConfirm(false)} disabled={trashing}
+                className="cursor-pointer rounded-lg px-4 py-2 text-xs font-medium transition-all duration-150"
+                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(100,100,220,0.1)", color: "#6060A0" }}>
+                Cancel
+              </button>
+              <button onClick={handleTrash} disabled={trashing}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-all duration-150 disabled:opacity-40"
+                style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)", color: "#FBBF24" }}>
+                <Trash2 size={13} /> {trashing ? "Moving…" : "Move to Trash"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
           onClick={() => setShowConfirm(false)}>

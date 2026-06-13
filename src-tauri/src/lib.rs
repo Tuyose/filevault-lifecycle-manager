@@ -115,6 +115,10 @@ pub fn run() {
             commands::archive_commands::open_containing_folder,
             commands::archive_commands::get_file_current_path,
             commands::archive_commands::archive_placeholder,
+            commands::trash_commands::move_file_to_trash,
+            commands::trash_commands::restore_file_from_trash,
+            commands::trash_commands::list_trashed_files,
+            commands::trash_commands::get_trash_stats,
             commands::trash_commands::trash_placeholder,
         ])
         .run(tauri::generate_context!())

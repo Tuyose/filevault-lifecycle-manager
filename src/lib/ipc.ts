@@ -13,6 +13,9 @@ import type {
   RestoreResult,
   ScanJob,
   SchedulerStatus,
+  TrashResult,
+  RestoreTrashResult,
+  TrashStats,
   ScanPreview,
   ScanRun,
   ScanStats,
@@ -69,6 +72,11 @@ export const ipc = {
   revealFileInExplorer: (fileId: string) => invoke<void>("reveal_file_in_explorer", { fileId }),
   openContainingFolder: (fileId: string) => invoke<void>("open_containing_folder", { fileId }),
   getFileCurrentPath: (fileId: string) => invoke<string>("get_file_current_path", { fileId }),
+  // Trash
+  moveFileToTrash: (fileId: string) => invoke<TrashResult>("move_file_to_trash", { fileId }),
+  restoreFileFromTrash: (fileId: string, conflictStrategy = "rename") => invoke<RestoreTrashResult>("restore_file_from_trash", { fileId, conflictStrategy }),
+  listTrashedFiles: () => invoke<any[]>("list_trashed_files"),
+  getTrashStats: () => invoke<TrashStats>("get_trash_stats"),
 };
 
 export const dialogs = {

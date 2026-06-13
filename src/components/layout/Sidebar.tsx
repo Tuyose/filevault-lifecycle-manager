@@ -1,4 +1,4 @@
-import { type LucideIcon, LayoutDashboard, BarChart3, FolderSearch, Eye, Sparkles, Archive, Clock, Settings } from "lucide-react";
+import { type LucideIcon, LayoutDashboard, BarChart3, FolderSearch, Eye, Sparkles, Archive, Trash2, Clock, Settings } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 export type Screen =
@@ -8,6 +8,7 @@ export type Screen =
   | "watchfolders"
   | "cleanup"
   | "archive"
+  | "trash"
   | "history"
   | "settings";
 
@@ -25,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "watchfolders", label: "Watch Folders", icon: Eye, route: "/watch-folders" },
   { id: "cleanup", label: "Cleanup", icon: Sparkles, route: "/duplicates" },
   { id: "archive", label: "Archive", icon: Archive, route: "/archive" },
+  { id: "trash", label: "Trash", icon: Trash2, route: "/trash" },
   { id: "history", label: "History", icon: Clock, route: "/history" },
   { id: "settings", label: "Settings", icon: Settings, route: "/settings" },
 ];

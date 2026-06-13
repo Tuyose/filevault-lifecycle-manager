@@ -375,6 +375,26 @@ impl FileRepository {
         Ok(())
     }
 
+    pub async fn mark_trashed(&self, file_id: &str, trashed_path: &str, trashed_at: DateTime<Utc>) -> AppResult<()> {
+        sqlx::query("UPDATE files SET status='trashed', current_path=?, trashed_at=?, last_seen_at=? WHERE id=?")
+            .bind(trashed_path).bind(trashed_at).bind(Utc::now()).bind(file_id)
+            .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn mark_restored_from_trash(&self, file_id: &str, restored_path: &str, restored_at: DateTime<Utc>) -> AppResult<()> {
+        sqlx::query("UPDATE files SET status='active', current_path=?, trashed_at=NULL, last_seen_at=? WHERE id=?")
+            .bind(restored_path).bind(restored_at).bind(file_id)
+            .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn list_trashed_files(&self, limit: i64, offset: i64) -> AppResult<Vec<FileRecord>> {
+        let rows: Vec<FileRecordRow> = sqlx::query_as("SELECT * FROM files WHERE status='trashed' ORDER BY trashed_at DESC LIMIT ? OFFSET ?")
+            .bind(limit).bind(offset).fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
     pub async fn list_archived_files_repo(&self, limit: i64, offset: i64) -> AppResult<Vec<FileRecord>> {
         let rows: Vec<FileRecordRow> = sqlx::query_as("SELECT * FROM files WHERE status='archived' ORDER BY archived_at DESC LIMIT ? OFFSET ?").bind(limit).bind(offset).fetch_all(&self.pool).await?;
         Ok(rows.into_iter().map(Into::into).collect())
