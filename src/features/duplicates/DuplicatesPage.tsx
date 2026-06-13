@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { ipc } from "../../lib/ipc";
-import type { DuplicateGroup, ScanRun } from "../../types/ipc";
+import type { ArchiveInfo, DuplicateGroup, ScanRun } from "../../types/ipc";
 import { StatCard } from "../../components/ui/StatCard";
+import { FileActionMenu } from "../../components/file-actions/FileActionMenu";
 import {
   formatBytes,
   shortenPath,
@@ -66,6 +67,7 @@ function buildCategories(groups: DuplicateGroup[]): { category: string; count: n
 
 export function DuplicatesPage() {
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
+  const [archiveInfo, setArchiveInfo] = useState<ArchiveInfo | null>(null);
   const [roots, setRoots] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -79,11 +81,13 @@ export function DuplicatesPage() {
     Promise.all([
       ipc.getDuplicateGroups(),
       ipc.getScanHistory().catch(() => [] as ScanRun[]),
+      ipc.getArchiveInfo().catch(() => null),
     ])
-      .then(([g, h]) => {
+      .then(([g, h, ai]) => {
         if (!cancelled) {
           setGroups(g);
           setRoots(h.map((r) => r.root_path));
+          setArchiveInfo(ai ?? null);
         }
       })
       .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); })
@@ -343,6 +347,18 @@ export function DuplicatesPage() {
                                           <div key={f.id} className="flex items-center gap-3 rounded bg-vault-bg/30 px-3 py-0.5 font-mono text-[11px] text-slate-300">
                                             <span className="w-14 shrink-0 text-vault-muted">{formatBytes(f.size_bytes)}</span>
                                             <span className="min-w-0 truncate" title={f.path}>{f.path}</span>
+                                            <FileActionMenu
+                                              fileId={f.id}
+                                              fileName={f.path.split(/[/\\]/).pop()}
+                                              status="active"
+                                              hasArchiveRoot={!!archiveInfo?.archiveRoot}
+                                              onArchived={() => {
+                                                setLoading(true);
+                                                ipc.getDuplicateGroups().then(setGroups).catch(() => {});
+                                                ipc.getArchiveInfo().then((v) => setArchiveInfo(v ?? null)).catch(() => {});
+                                                setLoading(false);
+                                              }}
+                                            />
                                           </div>
                                         ))}
                                       </div>

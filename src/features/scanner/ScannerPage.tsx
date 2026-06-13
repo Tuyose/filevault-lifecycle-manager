@@ -266,7 +266,6 @@ export function ScannerPage() {
                   <FileActionMenu
                     fileId={f.id}
                     fileName={f.file_name}
-                    filePath={f.current_path}
                     status="active"
                     hasArchiveRoot={!!archiveInfo?.archiveRoot}
                     onArchived={() => { setActiveFiles((prev) => prev.filter((x) => x.id !== f.id)); }}

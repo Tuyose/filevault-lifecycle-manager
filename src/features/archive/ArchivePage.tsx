@@ -6,6 +6,7 @@ import { dialogs, ipc } from "../../lib/ipc";
 import type { ArchiveInfo } from "../../types/ipc";
 import { formatBytes, formatTime } from "../../lib/folder-insights";
 import { PageShell } from "../../components/layout/PageShell";
+import { FileActionMenu } from "../../components/file-actions/FileActionMenu";
 
 export function ArchivePage() {
   const [info, setInfo] = useState<ArchiveInfo | null>(null);
@@ -150,10 +151,16 @@ export function ArchivePage() {
                       </div>
                       <button onClick={() => handleRestore(f.id)}
                         disabled={restoringId === f.id}
-                        className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150 hover:bg-white/5 disabled:opacity-40"
+                        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150 hover:bg-white/5 disabled:opacity-40"
                         style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.15)", color: "#818CF8" }}>
                         <RotateCcw size={11} /> {restoringId === f.id ? "Restoring…" : "Restore"}
                       </button>
+                      <FileActionMenu
+                        fileId={f.id}
+                        fileName={f.file_name}
+                        status="archived"
+                        hasArchiveRoot={!!info?.archiveRoot}
+                      />
                     </div>
                   ))}
                 </div>

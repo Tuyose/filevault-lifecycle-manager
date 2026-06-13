@@ -5,14 +5,13 @@ import { ipc } from "../../lib/ipc";
 type Props = {
   fileId: string;
   fileName?: string;
-  filePath?: string;
   status: string;
   hasArchiveRoot?: boolean;
   onArchived?: () => void;
   onError?: (msg: string) => void;
 };
 
-export function FileActionMenu({ fileId, fileName, filePath, status, hasArchiveRoot, onArchived, onError }: Props) {
+export function FileActionMenu({ fileId, fileName, status, hasArchiveRoot, onArchived, onError }: Props) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -40,10 +39,13 @@ export function FileActionMenu({ fileId, fileName, filePath, status, hasArchiveR
   }
 
   async function handleCopyPath() {
-    if (filePath) {
-      await navigator.clipboard.writeText(filePath);
+    try {
+      const path = await ipc.getFileCurrentPath(fileId);
+      await navigator.clipboard.writeText(path);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -86,7 +88,6 @@ export function FileActionMenu({ fileId, fileName, filePath, status, hasArchiveR
         {/* Copy path */}
         <button
           onClick={handleCopyPath}
-          disabled={!filePath}
           title="Copy path"
           className="rounded-md p-1.5 text-xs transition-all duration-150 disabled:opacity-30 hover:bg-white/5"
           style={{ color: copied ? "#10B981" : "#8080B0" }}

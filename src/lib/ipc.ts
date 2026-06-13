@@ -68,6 +68,7 @@ export const ipc = {
   listActiveFiles: () => invoke<any[]>("list_active_files"),
   revealFileInExplorer: (fileId: string) => invoke<void>("reveal_file_in_explorer", { fileId }),
   openContainingFolder: (fileId: string) => invoke<void>("open_containing_folder", { fileId }),
+  getFileCurrentPath: (fileId: string) => invoke<string>("get_file_current_path", { fileId }),
 };
 
 export const dialogs = {

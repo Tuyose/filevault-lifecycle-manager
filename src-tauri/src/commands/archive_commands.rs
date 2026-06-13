@@ -108,3 +108,12 @@ pub async fn open_containing_folder(file_id: String, state: tauri::State<'_, App
     { let _ = std::process::Command::new("open").arg(parent.to_string_lossy().as_ref()).spawn(); }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn get_file_current_path(file_id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let pool = state.database.pool().clone();
+    let repo = crate::db::repositories::file_repository::FileRepository::new(pool);
+    let record = repo.find_by_id(&file_id).await.map_err(|e| e.to_string())?
+        .ok_or("File not found")?;
+    Ok(record.current_path)
+}

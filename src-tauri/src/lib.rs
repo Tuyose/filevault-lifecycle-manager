@@ -113,6 +113,7 @@ pub fn run() {
             commands::archive_commands::list_active_files,
             commands::archive_commands::reveal_file_in_explorer,
             commands::archive_commands::open_containing_folder,
+            commands::archive_commands::get_file_current_path,
             commands::archive_commands::archive_placeholder,
             commands::trash_commands::trash_placeholder,
         ])
