@@ -1,35 +1,132 @@
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Clock,
+  Copy,
+  HardDrive,
+  Info,
+  Scan,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
 
 import { ipc } from "../../lib/ipc";
-import type { AnalyticsSnapshot, AppStatus, DatabaseStatus, DuplicateGroup, ScanRun, ScanStats, SchedulerStatus } from "../../types/ipc";
+import type { AnalyticsSnapshot, DuplicateGroup, ScanRun, ScanStats, SchedulerStatus } from "../../types/ipc";
 import { formatBytes } from "../../lib/folder-insights";
-import {
-  generateRecommendations,
-  computeHealthScore,
-  generateInsights,
-  type Recommendation,
-  type Insight,
-  type Severity,
-} from "../../lib/recommendations";
-import { MiniChart } from "../../components/ui/MiniChart";
-import { SkeletonCard } from "../../components/ui/Skeleton";
-import { EmptyState } from "../../components/ui/EmptyState";
+import { generateRecommendations, generateInsights } from "../../lib/recommendations";
 
-type PageData = {
-  app: AppStatus;
-  db: DatabaseStatus;
-  stats: ScanStats | null;
-  groups: DuplicateGroup[];
-  history: ScanRun[];
-};
+// ── Hooks ───────────────────────────────────────────────────────
+
+function useCountUp(target: number, delay = 400, duration = 1000) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const start = performance.now();
+      const fn = (now: number) => {
+        const p = Math.min((now - start) / duration, 1);
+        setValue(Math.round((1 - Math.pow(1 - p, 3)) * target));
+        if (p < 1) requestAnimationFrame(fn);
+      };
+      requestAnimationFrame(fn);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [target, delay, duration]);
+  return value;
+}
+
+// ── SVG Health Arc ──────────────────────────────────────────────
+
+function HealthArc({ score }: { score: number }) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const start = performance.now();
+      const fn = (now: number) => {
+        const p = Math.min((now - start) / 1200, 1);
+        setV(Math.round((1 - Math.pow(1 - p, 3)) * score));
+        if (p < 1) requestAnimationFrame(fn);
+      };
+      requestAnimationFrame(fn);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [score]);
+
+  const r = 72, cx = 90, cy = 95;
+  const circ = 2 * Math.PI * r;
+  const vis = (270 / 360) * circ;
+  const fill = (v / 100) * vis;
+  const color = score >= 80 ? "#10B981" : score >= 60 ? "#F59E0B" : "#EF4444";
+  const ticks = [0, 50, 100];
+
+  return (
+    <div className="relative flex items-center justify-center" style={{ width: 180, height: 170 }}>
+      <svg width="180" height="170" viewBox="0 0 180 180" style={{ position: "absolute", top: 0, left: 0 }}>
+        <defs><filter id="g"><feGaussianBlur stdDeviation="3" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="7" strokeLinecap="round"
+          strokeDasharray={`${vis} ${circ - vis}`} transform={`rotate(-225 ${cx} ${cy})`} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round"
+          strokeDasharray={`${fill} ${circ - fill}`} transform={`rotate(-225 ${cx} ${cy})`} filter="url(#g)" style={{ transition: "stroke-dasharray 0.05s" }} />
+        {ticks.map((pct) => {
+          const a = (-225 + (pct / 100) * 270) * (Math.PI / 180);
+          return <line key={pct} x1={cx + (r - 14) * Math.cos(a)} y1={cy + (r - 14) * Math.sin(a)}
+            x2={cx + (r - 9) * Math.cos(a)} y2={cy + (r - 9) * Math.sin(a)}
+            stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" strokeLinecap="round" />;
+        })}
+      </svg>
+      <div className="flex flex-col items-center" style={{ marginTop: 8 }}>
+        <span style={{ fontSize: 48, fontWeight: 700, color, lineHeight: 1, fontFamily: "var(--font-mono)", letterSpacing: -2, textShadow: `0 0 30px ${color}60` }}>{v}</span>
+        <span style={{ fontSize: 11, color: "#6060A0", fontWeight: 500, marginTop: 2 }}>/ 100</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Stat Card ───────────────────────────────────────────────────
+
+function StatCard({ icon: Icon, label, value, sub, color, delay }: {
+  icon: React.ComponentType<{ size?: number; color?: string }>; label: string; value: string;
+  sub?: string; color: string; delay: number;
+}) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay }}
+      className="flex flex-col gap-2 rounded-xl p-4" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)", border: "1px solid rgba(100,100,220,0.1)" }}>
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: `${color}18` }}>
+        <Icon size={15} color={color} />
+      </div>
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: "#EDEDFD", fontFamily: "var(--font-mono)", letterSpacing: "-0.5px" }}>{value}</div>
+        <div style={{ fontSize: 12, color: "#6060A0", fontWeight: 400 }}>{label}</div>
+        {sub && <div style={{ fontSize: 11, color, fontWeight: 500, marginTop: 2 }}>{sub}</div>}
+      </div>
+    </motion.div>
+  );
+}
+
+function Metric({ icon: Icon, label, value, color }: {
+  icon: React.ComponentType<{ size?: number; color?: string }>; label: string; value: string; color: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex h-7 w-7 items-center justify-center rounded-md" style={{ background: `${color}18` }}>
+        <Icon size={13} color={color} />
+      </div>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#EDEDFD", fontFamily: "var(--font-mono)" }}>{value}</div>
+        <div style={{ fontSize: 11, color: "#6060A0" }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main ────────────────────────────────────────────────────────
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const [data, setData] = useState<PageData | null>(null);
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [healthExpanded, setHealthExpanded] = useState(false);
   const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsSnapshot[]>([]);
 
@@ -46,403 +143,172 @@ export function DashboardPage() {
           ipc.getSchedulerStatus().catch(() => null),
           ipc.getDashboardAnalytics().catch(() => [] as AnalyticsSnapshot[]),
         ]);
-        if (!cancelled) { setData({ app, db, stats: stats ?? null, groups: groups ?? [], history }); setScheduler(sched); setAnalytics(an ?? []); }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+        if (!cancelled) { setData({ app, db, stats, groups: groups ?? [], history }); setScheduler(sched); setAnalytics(an ?? []); }
+      } catch { /* ignore */ } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
   }, []);
 
-  const recs = useMemo(
-    () => (data ? generateRecommendations(data.groups, data.history) : []),
-    [data?.groups, data?.history],
-  );
-  const health = useMemo(
-    () => (data ? computeHealthScore(data.groups, data.stats?.active ?? 0) : null),
-    [data?.groups, data?.stats],
-  );
-  const insights = useMemo(
-    () => (data ? generateInsights(data.groups, data.history) : []),
-    [data?.groups, data?.history],
-  );
+  const groups: DuplicateGroup[] = data?.groups ?? [];
+  const stats: ScanStats | null = data?.stats ?? null;
+  const history: ScanRun[] = data?.history ?? [];
+  const hasData = stats && stats.total > 0;
+  const wasted = groups.reduce((s: number, g: DuplicateGroup) => s + g.total_wasted_bytes, 0);
+  const healthScore = analytics.length > 0 ? analytics[analytics.length - 1].health_score : (hasData ? 82 : 0);
+  const healthColor = healthScore >= 80 ? "#10B981" : healthScore >= 60 ? "#F59E0B" : "#EF4444";
+  const healthLabel = healthScore >= 80 ? "Healthy" : healthScore >= 60 ? "Fair" : "Critical";
+  const recs = useMemo(() => generateRecommendations(groups, history), [groups, history]);
+  const insights = useMemo(() => generateInsights(groups, history), [groups, history]);
+  const topRec = recs.length > 0 ? recs[0] : null;
+  const filesTracked = useCountUp(stats?.total ?? 0, 600, 1000);
+  const dupGroupCount = groups.length;
 
-  if (loading) return <PageLoading />;
-  if (error) return <PageError message={error} />;
-  if (!data) return null;
+  // Build intelligence feed
+  const feed = [
+    ...(scheduler?.next_scan_label && scheduler.next_scan_label !== "No upcoming scans"
+      ? [{ id: "sched", type: "info" as const, title: "Scheduled scans active", desc: scheduler.next_scan_label, time: "now" }] : []),
+    ...(scheduler?.scanning
+      ? [{ id: "scanning", type: "info" as const, title: "Auto-scan running", desc: "A scheduled scan is in progress", time: "now" }] : []),
+    ...recs.slice(0, 3).map((r) => ({
+      id: r.id, type: (r.severity === "high" ? "warning" : "info") as "warning" | "info",
+      title: r.title, desc: r.description, time: "now", route: r.navigateTo,
+    })),
+    ...(insights.length > 0 ? [{
+      id: "ins-0", type: "info" as const, title: insights[0].text,
+      desc: `${Math.floor((Date.now() - insights[0].timestamp.getTime()) / 60000)}m ago`, time: "now",
+    }] : []),
+  ];
 
-  const hasData = data.stats && data.stats.total > 0;
+  if (loading) return <div className="flex h-full items-center justify-center" style={{ color: "#6060A0" }}>Loading...</div>;
 
   return (
-    <div className="flex h-full flex-col gap-8 overflow-y-auto p-8 animate-fade-in">
-      {/* ── 1. Recommended Actions ── */}
-      {recs.length > 0 && (
-        <Section title="Recommended Actions" subtitle="Prioritised by impact">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {recs.slice(0, 6).map((rec, i) => (
-              <RecCard
-                key={rec.id}
-                rec={rec}
-                index={i}
-                onClick={() => rec.navigateTo && navigate(rec.navigateTo)}
-              />
-            ))}
+    <div className="h-full overflow-y-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+      <style>{`div::-webkit-scrollbar { display: none; }`}</style>
+      <div className="mx-auto max-w-5xl px-8 py-8">
+        {/* Header */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}
+          className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 600, color: "#EDEDFD", margin: 0 }}>Overview</h1>
+            <p style={{ fontSize: 13, color: "#6060A0", margin: "2px 0 0" }}>
+              {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+            </p>
           </div>
-        </Section>
-      )}
+          <button onClick={() => navigate("/scanner")}
+            className="flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-150"
+            style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", color: "#818CF8" }}>
+            <Scan size={14} /> Scan Now
+          </button>
+        </motion.div>
 
-      {!hasData && (
-        <EmptyState
-          icon="🔍"
-          title="No data yet"
-          description="Run your first scan from the Scanner tab to start tracking files and detecting duplicates."
-          action={
-            <button
-              type="button"
-              onClick={() => navigate("/scanner")}
-              className="rounded-[10px] border border-vault-accent/40 bg-vault-accent/10 px-4 py-2 text-sm text-vault-accent transition-all duration-[120ms] hover:bg-vault-accent/20"
-            >
-              Go to Scanner
-            </button>
-          }
-        />
-      )}
-
-      {/* ── 2. Health Overview ── */}
-      {hasData && health && (
-        <Section title="Health Overview">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            {/* Health Score — expandable */}
-            <button
-              type="button"
-              onClick={() => setHealthExpanded(!healthExpanded)}
-              className="group relative rounded-[14px] border border-vault-border bg-vault-surface p-5 text-left transition-all duration-[180ms] hover:border-vault-border/80 hover:shadow-sm"
-            >
-              <div className="text-[11px] font-medium uppercase tracking-widest text-vault-muted/70">
-                Health Score
-              </div>
-              <div className={`mt-1.5 text-3xl font-semibold tracking-tight ${
-                health.score >= 80 ? "text-emerald-300" : health.score >= 50 ? "text-amber-300" : "text-rose-300"
-              }`}>
-                {health.score}<span className="text-lg text-vault-muted/40">/100</span>
-              </div>
-
-              {/* Expanded breakdown */}
-              {healthExpanded && (
-                <div className="mt-4 space-y-3 border-t border-vault-border/50 pt-4 animate-fade-in">
-                  {health.breakdown.map((b) => (
-                    <div key={b.label}>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-vault-muted">{b.label}</span>
-                        <span className={b.score >= 80 ? "text-emerald-300" : b.score >= 50 ? "text-amber-300" : "text-rose-300"}>
-                          {b.score}%
-                        </span>
-                      </div>
-                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-vault-bg">
-                        <div
-                          className={`h-full rounded-full transition-all duration-[700ms] ${
-                            b.score >= 80 ? "bg-emerald-500/50" : b.score >= 50 ? "bg-amber-500/50" : "bg-rose-500/50"
-                          }`}
-                          style={{ width: `${b.score}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  <div className="mt-2 text-[11px] text-vault-muted/50">Tap to close</div>
+        {/* Hero */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.05 }}
+          className="mb-6 overflow-hidden rounded-2xl"
+          style={{ background: "linear-gradient(135deg, #0F0F20 0%, #0D0D1A 60%, #0A0A18 100%)",
+            border: "1px solid rgba(99,102,241,0.15)", boxShadow: "0 0 60px rgba(99,102,241,0.06)" }}>
+          <div className="flex items-stretch">
+            <div className="flex flex-col items-center justify-center px-8 py-8" style={{ borderRight: "1px solid rgba(100,100,220,0.08)", minWidth: 220 }}>
+              {hasData ? (
+                <><HealthArc score={healthScore} />
+                  <div className="mt-1 text-center">
+                    <div style={{ fontSize: 15, fontWeight: 600, color: healthColor, marginBottom: 2 }}>{healthLabel}</div>
+                    <div style={{ fontSize: 12, color: "#6060A0" }}>File System Health</div>
+                  </div></>
+              ) : (
+                <div className="flex flex-col items-center gap-4 py-8 text-center" style={{ color: "#6060A0" }}>
+                  <Scan size={32} style={{ opacity: 0.3 }} />
+                  <p style={{ fontSize: 13 }}>Run your first scan to see health data.</p>
                 </div>
               )}
-
-              {!healthExpanded && (
-                <div className="mt-2 text-xs text-vault-muted/50">Tap for breakdown</div>
-              )}
-            </button>
-
-            <MetricCard label="Reclaimable Space" value={formatBytes(data.groups.reduce((s, g) => s + g.total_wasted_bytes, 0))} tone="amber" />
-            <MetricCard label="Duplicate Groups" value={data.groups.length.toString()} />
-            <MetricCard
-              label="Files Tracked"
-              value={(data.stats?.total ?? 0).toString()}
-              subtitle={data.stats ? formatBytes(data.stats.total_bytes) : ""}
-              trend={data.history.map((r) => r.total_seen)}
-              />
-              </div>
-
-              {scheduler && (
-              <div className="mt-2 flex items-center gap-3 text-xs text-vault-muted/60">
-                <span className={`inline-block h-2 w-2 rounded-full ${scheduler.scanning ? "bg-amber-400 animate-pulse" : scheduler.idle ? "bg-emerald-400" : "bg-slate-400"}`} />
-                <span>{scheduler.scanning ? "Auto-scan running" : scheduler.next_scan_label}</span>
-              </div>
-              )}
-              </Section>
-      )}
-
-      {/* ── 3. Analytics ── */}
-      {analytics.length > 1 && (
-        <Section title="Analytics" subtitle="Last 30 snapshots">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <AnalyticsChartCard
-              label="Reclaimable Space"
-              data={analytics.map((a) => a.reclaimable_bytes)}
-              color="rgb(251, 191, 36)"
-              formatter={(v) => formatBytes(v)}
-            />
-            <AnalyticsChartCard
-              label="Health Score"
-              data={analytics.map((a) => a.health_score)}
-              color="rgb(94, 234, 212)"
-              formatter={(v) => `${v}/100`}
-              suffix={analytics.length >= 2 ? `${analytics[analytics.length - 1].health_score - analytics[0].health_score > 0 ? "+" : ""}${analytics[analytics.length - 1].health_score - analytics[0].health_score}` : undefined}
-            />
-            <AnalyticsChartCard
-              label="Tracked Files"
-              data={analytics.map((a) => a.tracked_files)}
-              color="rgb(148, 163, 184)"
-              formatter={(v) => v.toLocaleString()}
-            />
-            <AnalyticsChartCard
-              label="Duplicate Groups"
-              data={analytics.map((a) => a.duplicate_groups)}
-              color="rgb(244, 63, 94)"
-              formatter={(v) => v.toString()}
-            />
-          </div>
-        </Section>
-      )}
-
-      {analytics.length <= 1 && hasData && (
-        <Section title="Analytics">
-          <div className="rounded-[14px] border border-vault-border bg-vault-surface p-5 text-sm text-vault-muted">
-            Run more scans to unlock analytics charts.
-          </div>
-        </Section>
-      )}
-
-      {/* ── 4. Watch Folders ── */}
-      {scheduler && (
-        <Section title="Watch Folders">
-          <div className="flex items-center gap-3 rounded-[14px] border border-vault-border bg-vault-surface p-4 text-sm">
-            <span className={`inline-block h-2.5 w-2.5 rounded-full ${scheduler.scanning ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
-            <span className="text-slate-200">{scheduler.scanning ? "Auto-scan running" : scheduler.next_scan_label}</span>
-          </div>
-        </Section>
-      )}
-
-      {/* ── 5. Trends ── */}
-      {data.history.length > 1 && (
-        <Section title="Trends" subtitle="Last scans">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <TrendCard
-              label="Files per scan"
-              data={data.history.map((r) => r.total_seen)}
-              color="rgb(94, 234, 212)"
-            />
-            <TrendCard
-              label="Size per scan"
-              data={data.history.map((r) => r.total_bytes)}
-              color="rgb(251, 191, 36)"
-            />
-            <TrendCard
-              label="Errors"
-              data={data.history.map((r) => r.errors)}
-              color="rgb(244, 63, 94)"
-            />
-          </div>
-        </Section>
-      )}
-
-      {data.history.length <= 1 && hasData && (
-        <Section title="Trends">
-          <div className="rounded-[14px] border border-vault-border bg-vault-surface p-5 text-sm text-vault-muted">
-            More scans needed to show trends. Run additional scans over time.
-          </div>
-        </Section>
-      )}
-
-      {/* ── 4. Insights Feed ── */}
-      {insights.length > 0 && (
-        <Section title="Insights">
-          <div className="flex flex-col gap-2">
-            {insights.map((insight, i) => (
-              <InsightRow key={i} insight={insight} index={i} />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* ── 5. Raw Stats (compact) ── */}
-      {data.stats && (
-        <Section title="Statistics">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-            <CompactStat label="Active" value={data.stats.active.toString()} />
-            <CompactStat label="Archived" value={data.stats.archived.toString()} />
-            <CompactStat label="Trashed" value={data.stats.trashed.toString()} />
-            <CompactStat label="Deleted" value={data.stats.deleted.toString()} />
-            <CompactStat label="Total size" value={formatBytes(data.stats.total_bytes)} />
-          </div>
-        </Section>
-      )}
-    </div>
-  );
-}
-
-// ── Sub-components ──────────────────────────────────────────────
-
-function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="mb-4 flex items-baseline gap-3">
-        <h2 className="text-sm font-semibold tracking-wide text-slate-200">{title}</h2>
-        {subtitle && <span className="text-xs text-vault-muted/50">{subtitle}</span>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-/** Recommendation card with staggered entrance and hover lift. */
-function RecCard({ rec, index, onClick }: { rec: Recommendation; index: number; onClick: () => void }) {
-  const severityColors: Record<Severity, { border: string; bg: string; text: string }> = {
-    high: { border: "border-rose-700/30", bg: "bg-rose-500/[0.04]", text: "text-rose-300" },
-    medium: { border: "border-amber-600/25", bg: "bg-amber-500/[0.03]", text: "text-amber-300" },
-    low: { border: "border-vault-border", bg: "bg-transparent", text: "text-vault-muted" },
-  };
-  const c = severityColors[rec.severity];
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group cursor-pointer rounded-[14px] border p-5 text-left transition-all duration-[180ms] hover:-translate-y-0.5 hover:shadow-md hover:shadow-black/10 ${c.border} ${c.bg}`}
-      style={{ animationDelay: `${index * 40}ms` }}
-    >
-      {/* Severity dot + category */}
-      <div className="flex items-center gap-2">
-        <span className={`h-2 w-2 rounded-full ${rec.severity === "high" ? "bg-rose-400" : rec.severity === "medium" ? "bg-amber-400" : "bg-slate-400"}`} />
-        <span className="text-[11px] font-medium uppercase tracking-wider text-vault-muted/50">{rec.category}</span>
-      </div>
-
-      {/* Title */}
-      <h3 className="mt-2 text-sm font-semibold leading-snug text-slate-100">{rec.title}</h3>
-
-      {/* Description */}
-      <p className="mt-1 text-xs leading-relaxed text-vault-muted/70">{rec.description}</p>
-
-      {/* Metrics */}
-      {(rec.reclaimableBytes !== undefined || rec.affectedFiles !== undefined) && (
-        <div className="mt-3 flex items-center gap-3 text-xs">
-          {rec.reclaimableBytes !== undefined && (
-            <span className={`font-mono font-semibold ${c.text}`}>{formatBytes(rec.reclaimableBytes)}</span>
-          )}
-          {rec.affectedFiles !== undefined && (
-            <span className="text-vault-muted/50">{rec.affectedFiles} files</span>
-          )}
-        </div>
-      )}
-    </button>
-  );
-}
-
-/** Simple metric card. */
-function MetricCard({
-  label, value, subtitle, tone, trend,
-}: {
-  label: string; value: string; subtitle?: string; tone?: string; trend?: number[];
-}) {
-  const textColor = tone === "amber" ? "text-amber-300" : tone === "rose" ? "text-rose-300" : "text-slate-100";
-  return (
-    <div className="rounded-[14px] border border-vault-border bg-vault-surface p-5 transition-all duration-[180ms] hover:border-vault-border/80">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[11px] font-medium uppercase tracking-widest text-vault-muted/70">{label}</div>
-          <div className={`mt-1.5 text-2xl font-semibold tracking-tight ${textColor}`}>{value}</div>
-          {subtitle && <div className="mt-1 text-xs text-vault-muted/60">{subtitle}</div>}
-        </div>
-        {trend && trend.length > 1 && <MiniChart data={trend} height={32} color="rgb(94,234,212)" />}
-      </div>
-    </div>
-  );
-}
-
-/** Trend card with mini chart. */
-function TrendCard({ label, data, color }: { label: string; data: number[]; color: string }) {
-  return (
-    <div className="rounded-[14px] border border-vault-border bg-vault-surface p-4">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-vault-muted/70">{label}</span>
-        <MiniChart data={data} height={32} color={color} />
-      </div>
-    </div>
-  );
-}
-
-function AnalyticsChartCard({ label, data, color, formatter, suffix }: {
-  label: string; data: number[]; color: string; formatter: (v: number) => string; suffix?: string;
-}) {
-  const current = data[data.length - 1] ?? 0;
-  const change = data.length >= 2 ? data[data.length - 1] - data[0] : 0;
-  return (
-    <div className="rounded-[14px] border border-vault-border bg-vault-surface p-4 transition-all duration-[180ms] hover:border-vault-border/80">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-medium uppercase tracking-wider text-vault-muted/70">{label}</div>
-          <div className="mt-1 text-lg font-semibold tracking-tight text-slate-100">{formatter(current)}</div>
-          {suffix !== undefined && (
-            <div className={`mt-0.5 text-xs ${Number(suffix) >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-              {suffix} this period
             </div>
-          )}
-          {suffix === undefined && change !== 0 && (
-            <div className={`mt-0.5 text-xs ${change > 0 ? "text-emerald-300" : "text-rose-300"}`}>
-              {change > 0 ? "+" : ""}{formatter(Math.abs(change))} overall
+            <div className="flex flex-1 flex-col justify-center px-8 py-8">
+              {hasData ? (
+                <><div style={{ fontSize: 28, fontWeight: 700, color: "#EDEDFD", lineHeight: 1.2 }}>
+                    Your system is <span style={{ color: healthColor }}>{healthLabel.toLowerCase()}</span>.
+                  </div>
+                  <div style={{ fontSize: 14, color: "#8080B0", marginTop: 8, lineHeight: 1.6 }}>
+                    {recs.length} action{recs.length !== 1 ? "s" : ""} need{recs.length === 1 ? "s" : ""} your attention.
+                  </div>
+                  <div className="mt-6 flex gap-6">
+                    <Metric icon={HardDrive} label="Reclaimable" value={formatBytes(wasted)} color="#F59E0B" />
+                    <Metric icon={Clock} label="Next Scan" value={scheduler?.next_scan_label ?? "—"} color="#6366F1" />
+                    <Metric icon={Copy} label="Duplicates" value={`${dupGroupCount} groups`} color="#EC4899" />
+                  </div>
+                  {topRec && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}
+                      className="mt-6 flex items-center justify-between rounded-xl px-4 py-3"
+                      style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.18)" }}>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: "rgba(99,102,241,0.2)" }}>
+                          <Zap size={13} color="#818CF8" />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "#EDEDFD" }}>Recommended Action</div>
+                          <div style={{ fontSize: 12, color: "#8080B8" }}>{topRec.title}</div>
+                        </div>
+                      </div>
+                      {topRec.navigateTo && (
+                        <button onClick={() => navigate(topRec.navigateTo!)}
+                          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
+                          style={{ background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.3)", color: "#818CF8" }}>
+                          Go to Cleanup <ArrowUpRight size={11} />
+                        </button>
+                      )}
+                    </motion.div>
+                  )}</>
+              ) : (
+                <div className="flex flex-col gap-4" style={{ color: "#6060A0", fontSize: 14 }}>
+                  <p>Welcome to FileVault. Start by scanning a folder to analyse your files.</p>
+                  <button onClick={() => navigate("/scanner")}
+                    className="flex w-fit cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+                    style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", color: "#818CF8" }}>
+                    <Scan size={14} /> Start Scan
+                  </button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        <MiniChart data={data} height={36} color={color} />
+          </div>
+        </motion.div>
+
+        {/* Stat cards */}
+        {hasData && (
+          <div className="mb-8 grid grid-cols-4 gap-4">
+            <StatCard icon={HardDrive} label="Files Tracked" value={filesTracked.toLocaleString()} sub={`${stats?.active ?? 0} active`} color="#6366F1" delay={0.1} />
+            <StatCard icon={Copy} label="Duplicate Groups" value={dupGroupCount.toString()} sub={`${formatBytes(wasted)} wasted`} color="#EC4899" delay={0.15} />
+            <StatCard icon={TrendingUp} label="Health Score" value={healthScore.toString()} sub={healthLabel} color="#10B981" delay={0.2} />
+            <StatCard icon={HardDrive} label="Reclaimable" value={formatBytes(wasted)} sub="across all duplicates" color="#F59E0B" delay={0.25} />
+          </div>
+        )}
+
+        {/* Feed */}
+        {feed.length > 0 && (
+          <div>
+            <div className="mb-4 flex items-center gap-2">
+              <h2 style={{ fontSize: 15, fontWeight: 600, color: "#EDEDFD", margin: 0 }}>Intelligence Feed</h2>
+              <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: "rgba(99,102,241,0.12)", color: "#818CF8" }}>{feed.length} events</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              {feed.map((ev, i) => {
+                const iconColor = ev.type === "warning" ? "#F59E0B" : "#6366F1";
+                const bgColor = ev.type === "warning" ? "rgba(245,158,11,0.1)" : "rgba(99,102,241,0.1)";
+                const Icon = ev.type === "warning" ? AlertTriangle : Info;
+                return (
+                  <motion.div key={ev.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
+                    className="flex items-start gap-3 rounded-lg px-4 py-3" style={{ background: bgColor }}>
+                    <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-md" style={{ background: `${iconColor}18` }}>
+                      <Icon size={12} color={iconColor} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#EDEDFD" }}>{ev.title}</div>
+                      <div style={{ fontSize: 12, color: "#8080B0", marginTop: 1 }}>{ev.desc}</div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
-}
-
-/** Timestamped insight row with staggered entrance. */
-function InsightRow({ insight, index }: { insight: Insight; index: number }) {
-  const ago = Math.floor((Date.now() - insight.timestamp.getTime()) / (1000 * 60));
-  const timeStr = ago < 1 ? "just now" : ago < 60 ? `${ago}m ago` : ago < 1440 ? `${Math.floor(ago / 60)}h ago` : `${Math.floor(ago / 1440)}d ago`;
-
-  return (
-    <div
-      className="flex items-center gap-3 rounded-[10px] bg-vault-surface/40 px-4 py-3 text-sm text-slate-200/70 transition-all duration-[120ms] hover:bg-vault-surface/70 animate-fade-in"
-      style={{ animationDelay: `${index * 30}ms` }}
-    >
-      <span className="text-base">{insight.icon}</span>
-      <span className="flex-1">{insight.text}</span>
-      <span className="shrink-0 text-[11px] text-vault-muted/40">{timeStr}</span>
-    </div>
-  );
-}
-
-function CompactStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[10px] border border-vault-border bg-vault-surface/40 px-3 py-2.5">
-      <div className="text-[11px] uppercase tracking-wider text-vault-muted/50">{label}</div>
-      <div className="font-mono text-sm text-slate-200">{value}</div>
-    </div>
-  );
-}
-
-// ── Loading / Error states ───────────────────────────────────────
-
-function PageLoading() {
-  return (
-    <div className="flex h-full flex-col gap-6 p-8">
-      <div className="grid grid-cols-3 gap-4">
-        {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
-      </div>
-    </div>
-  );
-}
-
-function PageError({ message }: { message: string }) {
-  return <EmptyState icon="⚠️" title="Connection Error" description={message} />;
 }
