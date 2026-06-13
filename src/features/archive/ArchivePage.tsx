@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Archive, FolderOpen, CheckCircle2, X, FileText } from "lucide-react";
+import { Archive, FolderOpen, CheckCircle2, X, FileText, RotateCcw } from "lucide-react";
 
 import { dialogs, ipc } from "../../lib/ipc";
 import type { ArchiveInfo } from "../../types/ipc";
@@ -12,6 +12,7 @@ export function ArchivePage() {
   const [files, setFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true); setError(null);
@@ -32,17 +33,23 @@ export function ArchivePage() {
   async function handleSetRoot() {
     const picked = await dialogs.pickFolder();
     if (!picked) return;
-    try {
-      await ipc.setArchiveRoot(picked);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    try { await ipc.setArchiveRoot(picked); await load(); }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
   async function handleClear() {
     await ipc.clearArchiveRoot();
     await load();
+  }
+
+  async function handleRestore(fileId: string) {
+    setRestoringId(fileId); setError(null);
+    try {
+      await ipc.restoreFile(fileId, "rename");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally { setRestoringId(null); }
   }
 
   if (loading) {
@@ -76,7 +83,6 @@ export function ArchivePage() {
           </motion.div>
         )}
 
-        {/* Not configured */}
         {!info?.archiveRoot && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             className="flex flex-col items-center gap-6 rounded-2xl p-12 text-center"
@@ -96,12 +102,9 @@ export function ArchivePage() {
           </motion.div>
         )}
 
-        {/* Configured */}
         {info?.archiveRoot && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4">
-            {/* Status card */}
-            <div className="rounded-2xl p-6"
-              style={{ background: "linear-gradient(135deg, #0F0F20 0%, #0D0D1A 60%, #0A0A18 100%)", border: "1px solid rgba(99,102,241,0.15)" }}>
+            <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #0F0F20 0%, #0D0D1A 60%, #0A0A18 100%)", border: "1px solid rgba(99,102,241,0.15)" }}>
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={16} color="#10B981" />
                 <span style={{ fontSize: 14, fontWeight: 600, color: "#10B981" }}>Ready</span>
@@ -110,23 +113,13 @@ export function ArchivePage() {
               <div className="mt-1 text-xs" style={{ color: "#6060A0" }}>Write access verified</div>
             </div>
 
-            {/* Stats */}
             <div className="grid grid-cols-3 gap-4">
-              <div className="rounded-xl p-4" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)", border: "1px solid rgba(100,100,220,0.1)" }}>
-                <div className="text-xs" style={{ color: "#6060A0" }}>Archived files</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: "#EDEDFD", fontFamily: "var(--font-mono)" }}>{info.archivedFiles}</div>
-              </div>
-              <div className="rounded-xl p-4" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)", border: "1px solid rgba(100,100,220,0.1)" }}>
-                <div className="text-xs" style={{ color: "#6060A0" }}>Total size</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: "#EDEDFD", fontFamily: "var(--font-mono)" }}>{formatBytes(info.archivedSizeBytes)}</div>
-              </div>
-              <div className="rounded-xl p-4" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)", border: "1px solid rgba(100,100,220,0.1)" }}>
-                <div className="text-xs" style={{ color: "#6060A0" }}>Status</div>
-                <div className="mt-1 text-sm font-medium" style={{ color: "#10B981" }}>Active</div>
-              </div>
+              <StatBlock label="Archived files" value={info.archivedFiles.toString()} />
+              <StatBlock label="Total size" value={formatBytes(info.archivedSizeBytes)} />
+              <StatBlock label="Status" value="Active" valueColor="#10B981" />
             </div>
 
-            {/* Archived files list */}
+            {/* Archived files */}
             <div>
               <h3 className="mb-3 text-sm font-semibold" style={{ color: "#EDEDFD" }}>
                 Archived Files {files.length > 0 && <span className="font-normal" style={{ color: "#6060A0" }}>({files.length})</span>}
@@ -151,17 +144,15 @@ export function ArchivePage() {
                           {f.current_path?.length > 60 ? f.current_path.slice(0, 57) + "…" : f.current_path}
                         </div>
                       </div>
-                      <div className="shrink-0 text-right text-xs" style={{ color: "#6060A0" }}>
-                        {formatBytes(f.size_bytes)}
-                      </div>
+                      <div className="shrink-0 text-right text-xs" style={{ color: "#6060A0" }}>{formatBytes(f.size_bytes)}</div>
                       <div className="shrink-0 text-right text-xs" style={{ color: "#6060A0" }}>
                         {f.archived_at ? formatTime(f.archived_at) : ""}
                       </div>
-                      <button disabled
-                        className="cursor-not-allowed rounded-lg px-3 py-1.5 text-xs font-medium opacity-40"
-                        style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.1)", color: "#818CF8" }}
-                        title="Restore will be enabled in the next milestone.">
-                        Restore
+                      <button onClick={() => handleRestore(f.id)}
+                        disabled={restoringId === f.id}
+                        className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150 hover:bg-white/5 disabled:opacity-40"
+                        style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.15)", color: "#818CF8" }}>
+                        <RotateCcw size={11} /> {restoringId === f.id ? "Restoring…" : "Restore"}
                       </button>
                     </div>
                   ))}
@@ -169,7 +160,6 @@ export function ArchivePage() {
               )}
             </div>
 
-            {/* Actions */}
             <div className="flex gap-3">
               <button onClick={handleSetRoot}
                 className="cursor-pointer rounded-lg px-4 py-2 text-xs font-medium transition-all duration-150"
@@ -183,7 +173,6 @@ export function ArchivePage() {
               </button>
             </div>
 
-            {/* Safety */}
             <div className="rounded-xl p-5" style={{ background: "rgba(16,185,129,0.04)", border: "1px solid rgba(16,185,129,0.1)" }}>
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={14} color="#10B981" />
@@ -194,5 +183,14 @@ export function ArchivePage() {
         )}
       </div>
     </PageShell>
+  );
+}
+
+function StatBlock({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+  return (
+    <div className="rounded-xl p-4" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)", border: "1px solid rgba(100,100,220,0.1)" }}>
+      <div className="text-xs" style={{ color: "#6060A0" }}>{label}</div>
+      <div className="mt-1 text-lg font-semibold" style={{ color: valueColor ?? "#EDEDFD", fontFamily: "var(--font-mono)" }}>{value}</div>
+    </div>
   );
 }

@@ -14,7 +14,7 @@ export default function App() {
     const routeMap: Record<Screen, string> = {
       overview: "/", analytics: "/analytics", files: "/scanner",
       watchfolders: "/watch-folders", cleanup: "/duplicates",
-      history: "/history", settings: "/settings",
+      archive: "/archive", history: "/history", settings: "/settings",
     };
     navigate(routeMap[screen]);
   };

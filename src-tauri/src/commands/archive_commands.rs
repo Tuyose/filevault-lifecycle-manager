@@ -49,9 +49,9 @@ pub async fn archive_file(file_id: String, state: tauri::State<'_, AppState>) ->
 }
 
 #[tauri::command]
-pub async fn restore_file(file_id: String, state: tauri::State<'_, AppState>) -> Result<archive_service::RestoreResult, String> {
+pub async fn restore_file(file_id: String, conflict_strategy: Option<String>, state: tauri::State<'_, AppState>) -> Result<archive_service::RestoreResult, String> {
     let pool = state.database.pool().clone();
-    archive_service::restore_file(&pool, &file_id, "rename").await.map_err(|e| e.to_string())
+    archive_service::restore_file(&pool, &file_id, conflict_strategy.as_deref().unwrap_or("rename")).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

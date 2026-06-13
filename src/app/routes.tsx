@@ -18,9 +18,9 @@ export function AppRoutes() {
       <Route path="/scanner" element={<ScannerPage />} />
       <Route path="/duplicates" element={<DuplicatesPage />} />
       <Route path="/watch-folders" element={<WatchFoldersPage />} />
+      <Route path="/archive" element={<ArchivePage />} />
       <Route path="/history" element={<HistoryPage />} />
       <Route path="/settings" element={<SettingsPage />} />
-      <Route path="/archive" element={<ArchivePage />} />
       <Route path="/trash" element={<TrashPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

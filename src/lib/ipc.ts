@@ -61,7 +61,7 @@ export const ipc = {
   setArchiveRoot: (path: string) => invoke<void>("set_archive_root", { path }),
   clearArchiveRoot: () => invoke<void>("clear_archive_root"),
   archiveFile: (fileId: string) => invoke<ArchiveResult>("archive_file", { fileId }),
-  restoreFile: (fileId: string) => invoke<RestoreResult>("restore_file", { fileId }),
+  restoreFile: (fileId: string, conflictStrategy = "rename") => invoke<RestoreResult>("restore_file", { fileId, conflictStrategy }),
   listArchivedFiles: () => invoke<any[]>("list_archived_files"),
   getArchiveInfo: () => invoke<ArchiveInfo>("get_archive_info"),
 };
