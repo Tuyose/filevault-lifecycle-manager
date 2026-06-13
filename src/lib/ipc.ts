@@ -64,6 +64,10 @@ export const ipc = {
   restoreFile: (fileId: string, conflictStrategy = "rename") => invoke<RestoreResult>("restore_file", { fileId, conflictStrategy }),
   listArchivedFiles: () => invoke<any[]>("list_archived_files"),
   getArchiveInfo: () => invoke<ArchiveInfo>("get_archive_info"),
+  // File actions
+  listActiveFiles: () => invoke<any[]>("list_active_files"),
+  revealFileInExplorer: (fileId: string) => invoke<void>("reveal_file_in_explorer", { fileId }),
+  openContainingFolder: (fileId: string) => invoke<void>("open_containing_folder", { fileId }),
 };
 
 export const dialogs = {

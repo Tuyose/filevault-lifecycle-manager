@@ -69,3 +69,42 @@ pub async fn get_archive_info(state: tauri::State<'_, AppState>) -> Result<Archi
     let count = repo.count_by_status("archived").await.unwrap_or(0);
     Ok(ArchiveStats { archive_root: root, archived_files: count, archived_size_bytes: 0 })
 }
+
+// ── File action helpers ──────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_active_files(state: tauri::State<'_, AppState>) -> Result<Vec<crate::models::file_record::FileRecord>, String> {
+    let pool = state.database.pool().clone();
+    crate::db::repositories::file_repository::FileRepository::new(pool)
+        .list_by_status(crate::models::file_record::FileStatus::Active).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn reveal_file_in_explorer(file_id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let pool = state.database.pool().clone();
+    let repo = crate::db::repositories::file_repository::FileRepository::new(pool);
+    let record = repo.find_by_id(&file_id).await.map_err(|e| e.to_string())?
+        .ok_or("File not found")?;
+    let path = std::path::PathBuf::from(&record.current_path);
+    if !path.exists() { return Err("File does not exist on disk".to_string()); }
+    #[cfg(target_os = "windows")]
+    { std::process::Command::new("explorer").arg("/select,").arg(path.to_string_lossy().as_ref()).spawn().ok(); }
+    #[cfg(not(target_os = "windows"))]
+    { let _ = std::process::Command::new("open").arg("-R").arg(path.to_string_lossy().as_ref()).spawn(); }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_containing_folder(file_id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let pool = state.database.pool().clone();
+    let repo = crate::db::repositories::file_repository::FileRepository::new(pool);
+    let record = repo.find_by_id(&file_id).await.map_err(|e| e.to_string())?
+        .ok_or("File not found")?;
+    let path = std::path::PathBuf::from(&record.current_path);
+    let parent = path.parent().map(|p| p.to_path_buf()).unwrap_or(path);
+    #[cfg(target_os = "windows")]
+    { std::process::Command::new("explorer").arg(parent.to_string_lossy().as_ref()).spawn().ok(); }
+    #[cfg(not(target_os = "windows"))]
+    { let _ = std::process::Command::new("open").arg(parent.to_string_lossy().as_ref()).spawn(); }
+    Ok(())
+}

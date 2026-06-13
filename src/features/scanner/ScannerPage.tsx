@@ -5,9 +5,10 @@ import { FolderSearch, Play, Pause, Square, Clock, HardDrive, FileText } from "l
 
 import { useScanJob } from "../scan/scan-store";
 import { dialogs, ipc } from "../../lib/ipc";
-import type { DuplicateGroup, ScanRun } from "../../types/ipc";
+import type { DuplicateGroup, ScanRun, ArchiveInfo } from "../../types/ipc";
 import { formatBytes, shortenPath, formatTime } from "../../lib/folder-insights";
 import { PageShell } from "../../components/layout/PageShell";
+import { FileActionMenu } from "../../components/file-actions/FileActionMenu";
 
 interface ScanIntent {
   source: string;
@@ -23,7 +24,10 @@ export function ScannerPage() {
 
   const [folder, setFolder] = useState<string | null>(null);
   const [history, setHistory] = useState<ScanRun[]>([]);
+  const [_error, setError] = useState<string | null>(null);
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
+  const [activeFiles, setActiveFiles] = useState<any[]>([]);
+  const [archiveInfo, setArchiveInfo] = useState<ArchiveInfo | null>(null);
   const intentConsumed = useRef(false);
   const startTimeRef = useRef(Date.now());
 
@@ -45,7 +49,19 @@ export function ScannerPage() {
   useEffect(() => {
     ipc.getScanHistory().catch(() => []).then(setHistory);
     ipc.getDuplicateGroups().catch(() => []).then(setGroups);
+    ipc.listActiveFiles().catch(() => []).then(setActiveFiles);
+    ipc.getArchiveInfo().catch(() => null).then((v) => setArchiveInfo(v ?? null));
   }, []);
+
+  // Refresh indexed files + archive info after scan
+  useEffect(() => {
+    if (job?.status === "completed" || job?.status === "cancelled") {
+      Promise.all([
+        ipc.listActiveFiles().catch(() => []),
+        ipc.getArchiveInfo().catch(() => null),
+      ]).then(([af, ai]) => { setActiveFiles(af); if (ai) setArchiveInfo(ai); });
+    }
+  }, [job?.status]);
 
   // Refresh data after scan completes
   useEffect(() => {
@@ -216,6 +232,46 @@ export function ScannerPage() {
                   <span className="shrink-0 font-mono text-xs" style={{ color: "#6060A0" }}>
                     {Math.floor((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000)}s
                   </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Indexed Files */}
+        {activeFiles.length > 0 && (
+          <div>
+            <h3 className="mb-3 text-sm font-semibold" style={{ color: "#EDEDFD" }}>Indexed Files</h3>
+            {!archiveInfo?.archiveRoot && (
+              <div className="mb-3 flex items-center justify-between rounded-lg px-4 py-2 text-xs"
+                style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.1)", color: "#F59E0B" }}>
+                <span>Archive is not configured. Choose an archive folder to enable file archiving.</span>
+                <button onClick={() => window.location.href = "/archive"}
+                  className="ml-3 shrink-0 rounded-md px-2 py-0.5 text-xs font-medium"
+                  style={{ background: "rgba(245,158,11,0.12)", color: "#FBBF24" }}>Configure</button>
+              </div>
+            )}
+            <div className="flex flex-col gap-1">
+              {activeFiles.slice(0, 20).map((f: any) => (
+                <div key={f.id} className="flex items-center gap-3 rounded-lg px-4 py-2.5"
+                  style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(100,100,220,0.06)" }}>
+                  <FileText size={14} color="#8080B0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium truncate" style={{ color: "#EDEDFD" }}>{f.file_name}</div>
+                    <div className="mt-0.5 text-xs truncate" style={{ color: "#6060A0" }} title={f.current_path}>{shortenPath(f.current_path, 2)}</div>
+                  </div>
+                  <span className="shrink-0 text-xs" style={{ color: "#6060A0" }}>{formatBytes(f.size_bytes)}</span>
+                  <span className="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium"
+                    style={{ background: "rgba(16,185,129,0.1)", color: "#10B981" }}>Active</span>
+                  <FileActionMenu
+                    fileId={f.id}
+                    fileName={f.file_name}
+                    filePath={f.current_path}
+                    status="active"
+                    hasArchiveRoot={!!archiveInfo?.archiveRoot}
+                    onArchived={() => { setActiveFiles((prev) => prev.filter((x) => x.id !== f.id)); }}
+                    onError={(msg) => setError(msg)}
+                  />
                 </div>
               ))}
             </div>
