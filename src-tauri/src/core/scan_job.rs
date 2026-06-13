@@ -80,8 +80,11 @@ impl ScanJobManager {
         }
     }
 
-    pub async fn clear(&self) {
-        *self.inner.write().await = None;
+    pub async fn update_error(&self, msg: Option<String>) {
+        let mut guard = self.inner.write().await;
+        if let Some(ref mut job) = *guard {
+            job.error_message = msg;
+        }
     }
 
     pub async fn is_active(&self) -> bool {

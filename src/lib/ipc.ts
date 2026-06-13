@@ -52,6 +52,7 @@ export const ipc = {
   getHealthBreakdown: () => invoke<HealthBreakdown>("get_health_breakdown"),
   getScanTrends: () => invoke<AnalyticsSnapshot[]>("get_scan_trends"),
   getActiveScanJob: () => invoke<ScanJob | null>("get_active_scan_job"),
+  startScanJob: (args: { path: string; source: string; watch_folder_id?: string }) => invoke<ScanJob>("start_scan_job", { args }),
 };
 
 export const dialogs = {

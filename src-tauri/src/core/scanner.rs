@@ -43,7 +43,8 @@ pub struct ScanProgress {
     pub total_files: i64,
     pub current_path: String,
     pub current_dir: String,
-    pub phase: ProgressPhase,
+    pub phase: String,
+    pub job_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +66,7 @@ pub struct Scanner {
     on_progress: Option<ProgressCallback>,
     controller: Option<Arc<ScanController>>,
     hash_service: Option<HashService>,
+    job_id: Option<String>,
 }
 
 impl Scanner {
@@ -75,6 +77,7 @@ impl Scanner {
             on_progress: None,
             controller: None,
             hash_service: None,
+            job_id: None,
         }
     }
 
@@ -95,6 +98,11 @@ impl Scanner {
 
     pub fn with_hash_service(mut self, hasher: HashService) -> Self {
         self.hash_service = Some(hasher);
+        self
+    }
+
+    pub fn with_job_id(mut self, job_id: String) -> Self {
+        self.job_id = Some(job_id);
         self
     }
 
@@ -129,7 +137,8 @@ impl Scanner {
             total_files,
             current_path: String::new(),
             current_dir: root.display().to_string(),
-            phase: ProgressPhase::Scanning,
+            phase: "Scanning".to_string(),
+            job_id: String::new(),
         });
 
         let canonical_root = root.to_path_buf();
@@ -193,7 +202,8 @@ impl Scanner {
                         total_files,
                         current_path,
                         current_dir: parent_dir,
-                        phase: ProgressPhase::Scanning,
+                        phase: "Scanning".to_string(),
+            job_id: String::new(),
                     });
 
                     // Honour pause / cancel every file boundary
@@ -229,13 +239,17 @@ impl Scanner {
             total_files,
             current_path: String::new(),
             current_dir: String::new(),
-            phase: ProgressPhase::Done,
+            phase: "Done".to_string(),
+            job_id: String::new(),
         });
 
         Ok(summary)
     }
 
-    fn emit(&self, progress: ScanProgress) {
+    fn emit(&self, mut progress: ScanProgress) {
+        if progress.job_id.is_empty() {
+            progress.job_id = self.job_id.clone().unwrap_or_default();
+        }
         if let Some(ref cb) = self.on_progress {
             cb(progress);
         }

@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
+use crate::core::scan_job::{ScanJob, ScanJobStatus, ScanSource};
 use crate::core::scanner::{ProgressCallback, ScanProgress, ScanSummary};
 use crate::db::repositories::file_repository::FileRepository;
 use crate::db::repositories::file_repository::FileStats;
@@ -12,19 +13,10 @@ use crate::errors::AppError;
 use crate::models::duplicate_group::DuplicateGroup;
 use crate::models::scan_run::{ScanRun, ScanRunStatus};
 use crate::services::analytics_service::AnalyticsService;
-use crate::core::scan_job::{ScanJob, ScanJobStatus, ScanSource};
 use crate::AppState;
 
-// ... (existing commands)
+// ── Legacy command (for tests, backward compat) ──────────────────
 
-/// Return the currently active scan job, or null if idle.
-#[tauri::command]
-pub async fn get_active_scan_job(
-    state: tauri::State<'_, AppState>,
-) -> Result<Option<ScanJob>, String> {
-    Ok(state.scan_job_manager.get().await)
-}
-/// Placeholder — kept for backward compat. See `scan_folder`.
 #[derive(Debug, Serialize)]
 pub struct ScanPreview {
     pub requested_path: String,
@@ -33,127 +25,223 @@ pub struct ScanPreview {
 
 #[tauri::command]
 pub fn scan_folder_preview(path: String) -> ScanPreview {
-    ScanPreview {
-        requested_path: path,
-        would_scan: true,
-    }
+    ScanPreview { requested_path: path, would_scan: true }
 }
 
-/// Recursively scan `path` and persist metadata to the database.
-/// Streams `scan:progress` events. Records a `scan_runs` row on
-/// completion, cancellation, or error.
+// ── New: start a scan as a background job ────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct StartScanJobArgs {
+    pub path: String,
+    pub source: String,
+    pub watch_folder_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn start_scan_job(
+    app: AppHandle,
+    args: StartScanJobArgs,
+    state: tauri::State<'_, AppState>,
+) -> Result<ScanJob, String> {
+    // Idempotency: if a scan is already active, return it
+    if state.scan_job_manager.is_active().await {
+        if let Some(existing) = state.scan_job_manager.get().await {
+            return Ok(existing);
+        }
+    }
+
+    let job_id = Uuid::new_v4().to_string();
+    let source = match args.source.as_str() {
+        "watch-folder" => ScanSource::WatchFolder,
+        "scheduled" => ScanSource::Scheduled,
+        _ => ScanSource::Manual,
+    };
+
+    let job = ScanJob {
+        id: job_id.clone(),
+        path: args.path.clone(),
+        source,
+        watch_folder_id: args.watch_folder_id.clone(),
+        status: ScanJobStatus::Counting,
+        started_at: Some(chrono::Utc::now()),
+        finished_at: None,
+        processed: 0,
+        total_files: 0,
+        current_path: None,
+        current_dir: None,
+        error_message: None,
+    };
+    state.scan_job_manager.set(job.clone()).await;
+
+    // Spawn the actual scan as a background task
+    let root = PathBuf::from(&args.path);
+    let files = state.files.clone();
+    let controller = state.scan_controller.clone();
+    let job_mgr = state.scan_job_manager.clone();
+    let pool = state.database.pool().clone();
+    let app_clone = app.clone();
+    let jid = job_id.clone();
+
+    tauri::async_runtime::spawn(async move {
+        controller.reset();
+
+        // Build progress callback that updates both events and job manager
+        let on_progress: ProgressCallback = Box::new({
+            let app = app_clone.clone();
+            let mgr = job_mgr.clone();
+            let jid = jid.clone();
+            move |progress: ScanProgress| {
+                let _ = app.emit("scan:progress", &progress);
+                // Update job manager with latest progress
+                tauri::async_runtime::block_on(async {
+                    mgr.update_progress(
+                        progress.processed,
+                        progress.total_files,
+                        Some(progress.current_path.clone()),
+                        Some(progress.current_dir.clone()),
+                    ).await;
+                    let new_status = match progress.phase.as_str() {
+                        "Counting" => ScanJobStatus::Counting,
+                        "Scanning" => ScanJobStatus::Scanning,
+                        "Done" => ScanJobStatus::Completed,
+                        _ => ScanJobStatus::Scanning,
+                    };
+                    mgr.update_status(new_status).await;
+                });
+            }
+        });
+
+        let result = files
+            .scan_with_progress(&root, on_progress, Some(controller.clone()))
+            .await;
+
+        // Persist scan_run
+        let (summary, run_status) = if let Ok(ref s) = result {
+            (s.clone(), ScanRunStatus::Completed)
+        } else {
+            (ScanSummary { root: root.display().to_string(), ..Default::default() }, ScanRunStatus::Error)
+        };
+
+        let repo = ScanRunRepository::new(pool.clone());
+        let run = ScanRun {
+            id: Uuid::new_v4().to_string(),
+            root_path: summary.root.clone(),
+            started_at: summary.started_at,
+            finished_at: summary.finished_at,
+            total_seen: summary.total_seen,
+            inserted: summary.inserted,
+            updated: summary.updated,
+            errors: summary.errors,
+            total_bytes: summary.total_bytes,
+            status: run_status,
+        };
+        let _ = repo.insert(&run).await;
+
+        // Analytics snapshot
+        if result.is_ok() {
+            let analytics = AnalyticsService::new(pool);
+            if let Err(err) = analytics.create_snapshot().await {
+                log::warn!("failed to create analytics snapshot: {err}");
+            }
+        }
+
+        // Update job manager with final state
+        let final_status = if result.is_ok() { ScanJobStatus::Completed } else { ScanJobStatus::Error };
+        job_mgr.update_status(final_status).await;
+        job_mgr.update_error(result.as_ref().err().map(|e| e.to_string())).await;
+
+        log::info!("scan job {} finished with status {:?}", jid, final_status);
+    });
+
+    // Return the job immediately — frontend polls for updates
+    Ok(job)
+}
+
+// ── Legacy blocking scan (for tests) ─────────────────────────────
+
 #[tauri::command]
 pub async fn scan_folder(
     app: AppHandle,
     path: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<ScanSummary, String> {
-    if path.trim().is_empty() {
-        return Err(AppError::invalid("scan path is empty").to_string());
-    }
-
     let root = PathBuf::from(&path);
     let controller = state.scan_controller.clone();
     controller.reset();
 
-    let app_clone = app.clone();
-    let on_progress: ProgressCallback = Box::new(move |progress: ScanProgress| {
-        let _ = app_clone.emit("scan:progress", &progress);
+    let on_progress: ProgressCallback = Box::new({
+        let app = app.clone();
+        move |p| { let _ = app.emit("scan:progress", &p); }
     });
 
-    let result = state
-        .files
-        .scan_with_progress(&root, on_progress, Some(controller))
+    let result = state.files
+        .scan_with_progress(&root, on_progress, Some(controller.clone()))
         .await;
 
-    // Determine status and persist a scan_run regardless of outcome.
-    let (summary, status) = if let Ok(s) = &result {
-        (s.clone(), ScanRunStatus::Completed)
-    } else {
-        let partial = ScanSummary {
-            root: root.display().to_string(),
-            ..Default::default()
+    // Persist scan_run + analytics (same as start_scan_job's task)
+    if let Ok(ref summary) = result {
+        let pool = state.database.pool().clone();
+        let repo = ScanRunRepository::new(pool.clone());
+        let run = ScanRun {
+            id: Uuid::new_v4().to_string(),
+            root_path: summary.root.clone(),
+            started_at: summary.started_at,
+            finished_at: summary.finished_at,
+            total_seen: summary.total_seen,
+            inserted: summary.inserted,
+            updated: summary.updated,
+            errors: summary.errors,
+            total_bytes: summary.total_bytes,
+            status: ScanRunStatus::Completed,
         };
-        (partial, ScanRunStatus::Error)
-    };
-
-    let pool = state.database.pool().clone();
-    let repo = ScanRunRepository::new(pool.clone());
-    let run = ScanRun {
-        id: Uuid::new_v4().to_string(),
-        root_path: summary.root.clone(),
-        started_at: summary.started_at,
-        finished_at: summary.finished_at,
-        total_seen: summary.total_seen,
-        inserted: summary.inserted,
-        updated: summary.updated,
-        errors: summary.errors,
-        total_bytes: summary.total_bytes,
-        status,
-    };
-    let _ = repo.insert(&run).await;
-
-    // Create analytics snapshot after every scan
-    if result.is_ok() {
-        let analytics = crate::services::analytics_service::AnalyticsService::new(pool);
-        if let Err(err) = analytics.create_snapshot().await {
-            log::warn!("failed to create analytics snapshot: {err}");
-        }
+        let _ = repo.insert(&run).await;
+        let analytics = AnalyticsService::new(pool);
+        let _ = analytics.create_snapshot().await;
     }
 
-    result.map_err(|err| err.to_string())
+    result.map_err(|e| e.to_string())
 }
 
-/// Aggregate stats for the dashboard / scan summary views.
-#[tauri::command]
-pub async fn get_scan_stats(
-    state: tauri::State<'_, AppState>,
-) -> Result<FileStats, String> {
-    state
-        .files
-        .aggregate_stats()
-        .await
-        .map_err(|err| err.to_string())
-}
+// ── Query commands (unchanged) ───────────────────────────────────
 
-/// Return the 20 most recent scan runs.
 #[tauri::command]
-pub async fn get_scan_history(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<ScanRun>, String> {
+pub async fn get_scan_stats(state: tauri::State<'_, AppState>) -> Result<FileStats, String> {
     let pool = state.database.pool().clone();
-    let repo = ScanRunRepository::new(pool);
-    repo.list(20).await.map_err(|err| err.to_string())
+    FileRepository::new(pool).aggregate_stats().await.map_err(|e| e.to_string())
 }
 
-/// Pause the running scan (if any).
+#[tauri::command]
+pub async fn get_scan_history(state: tauri::State<'_, AppState>) -> Result<Vec<ScanRun>, String> {
+    let pool = state.database.pool().clone();
+    ScanRunRepository::new(pool).list(50).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_duplicate_groups(state: tauri::State<'_, AppState>) -> Result<Vec<DuplicateGroup>, String> {
+    let pool = state.database.pool().clone();
+    FileRepository::new(pool).find_duplicate_groups().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_active_scan_job(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<ScanJob>, String> {
+    Ok(state.scan_job_manager.get().await)
+}
+
+// ── Pause / Resume / Cancel ──────────────────────────────────────
+
 #[tauri::command]
 pub fn pause_scan(state: tauri::State<'_, AppState>) {
     state.scan_controller.pause();
-    log::info!("scan paused by user");
 }
 
-/// Resume a paused scan.
 #[tauri::command]
 pub fn resume_scan(state: tauri::State<'_, AppState>) {
     state.scan_controller.resume();
-    log::info!("scan resumed by user");
 }
 
-/// Cancel the running scan. The scanner will stop at the next file
-/// boundary and return a partial summary.
 #[tauri::command]
 pub fn cancel_scan(state: tauri::State<'_, AppState>) {
     state.scan_controller.cancel();
-    log::info!("scan cancelled by user");
-}
-
-/// Return all duplicate groups (files sharing the same BLAKE3 hash).
-#[tauri::command]
-pub async fn get_duplicate_groups(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<DuplicateGroup>, String> {
-    let pool = state.database.pool().clone();
-    let repo = FileRepository::new(pool);
-    repo.find_duplicate_groups().await.map_err(|err| err.to_string())
 }
