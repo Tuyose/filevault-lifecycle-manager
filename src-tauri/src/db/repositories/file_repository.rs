@@ -404,4 +404,30 @@ impl FileRepository {
         let row = sqlx::query("SELECT COUNT(*) FROM files WHERE status=?").bind(status).fetch_one(&self.pool).await?;
         Ok(row.get(0))
     }
+
+    pub async fn count_purge_candidates(&self, cutoff: DateTime<Utc>) -> AppResult<i64> {
+        let row = sqlx::query("SELECT COUNT(*) FROM files WHERE status='trashed' AND trashed_at <= ?")
+            .bind(cutoff).fetch_one(&self.pool).await?;
+        Ok(row.get(0))
+    }
+
+    pub async fn sum_purge_candidate_bytes(&self, cutoff: DateTime<Utc>) -> AppResult<i64> {
+        let row = sqlx::query("SELECT COALESCE(SUM(size_bytes),0) FROM files WHERE status='trashed' AND trashed_at <= ?")
+            .bind(cutoff).fetch_one(&self.pool).await?;
+        Ok(row.get(0))
+    }
+
+    pub async fn list_purge_candidates(&self, cutoff: DateTime<Utc>) -> AppResult<Vec<FileRecord>> {
+        let rows: Vec<FileRecordRow> = sqlx::query_as(
+            "SELECT * FROM files WHERE status='trashed' AND trashed_at <= ? ORDER BY trashed_at ASC LIMIT 100"
+        ).bind(cutoff).fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn mark_deleted(&self, file_id: &str, deleted_at: DateTime<Utc>) -> AppResult<()> {
+        sqlx::query("UPDATE files SET status='deleted', deleted_at=?, last_seen_at=? WHERE id=? AND status='trashed'")
+            .bind(deleted_at).bind(Utc::now()).bind(file_id)
+            .execute(&self.pool).await?;
+        Ok(())
+    }
 }

@@ -16,6 +16,10 @@ import type {
   TrashResult,
   RestoreTrashResult,
   TrashStats,
+  RetentionSettings,
+  RetentionSummary,
+  PurgeResult,
+  PurgeBatchResult,
   ScanPreview,
   ScanRun,
   ScanStats,
@@ -77,6 +81,13 @@ export const ipc = {
   restoreFileFromTrash: (fileId: string, conflictStrategy = "rename") => invoke<RestoreTrashResult>("restore_file_from_trash", { fileId, conflictStrategy }),
   listTrashedFiles: () => invoke<any[]>("list_trashed_files"),
   getTrashStats: () => invoke<TrashStats>("get_trash_stats"),
+  // Retention
+  getRetentionSettings: () => invoke<RetentionSettings>("get_retention_settings"),
+  updateRetentionSettings: (retentionDays: number, autoPurgeEnabled: boolean) => invoke<RetentionSettings>("update_retention_settings", { retentionDays, autoPurgeEnabled }),
+  getRetentionSummary: () => invoke<RetentionSummary>("get_retention_summary"),
+  listPurgeCandidates: () => invoke<any[]>("list_purge_candidates"),
+  purgeTrashedFile: (fileId: string) => invoke<PurgeResult>("purge_trashed_file", { fileId }),
+  purgeEligibleFiles: () => invoke<PurgeBatchResult>("purge_eligible_files"),
 };
 
 export const dialogs = {

@@ -175,3 +175,30 @@ export type RestoreTrashResult = {
   status: "active";
   restoredAt: string;
 };
+
+export type RetentionSettings = {
+  retentionDays: number;
+  autoPurgeEnabled: boolean;
+};
+
+export type RetentionSummary = {
+  retentionDays: number;
+  autoPurgeEnabled: boolean;
+  trashedFiles: number;
+  purgeEligibleFiles: number;
+  purgeEligibleBytes: number;
+};
+
+export type PurgeResult = {
+  fileId: string;
+  deletedPath: string;
+  status: "deleted";
+  purgedAt: string;
+};
+
+export type PurgeBatchResult = {
+  purgedFiles: number;
+  purgedBytes: number;
+  errors: number;
+  errorSamples: string[];
+};

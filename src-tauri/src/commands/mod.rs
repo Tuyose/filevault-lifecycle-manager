@@ -3,6 +3,7 @@
 
 pub mod analytics_commands;
 pub mod archive_commands;
+pub mod retention_commands;
 pub mod scanner_commands;
 pub mod system_commands;
 pub mod trash_commands;

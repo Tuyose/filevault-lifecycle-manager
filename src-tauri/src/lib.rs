@@ -119,6 +119,12 @@ pub fn run() {
             commands::trash_commands::restore_file_from_trash,
             commands::trash_commands::list_trashed_files,
             commands::trash_commands::get_trash_stats,
+            commands::retention_commands::get_retention_settings,
+            commands::retention_commands::update_retention_settings,
+            commands::retention_commands::get_retention_summary,
+            commands::retention_commands::list_purge_candidates,
+            commands::retention_commands::purge_trashed_file,
+            commands::retention_commands::purge_eligible_files,
             commands::trash_commands::trash_placeholder,
         ])
         .run(tauri::generate_context!())
