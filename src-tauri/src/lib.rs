@@ -84,6 +84,7 @@ pub fn run() {
             commands::system_commands::get_app_status,
             commands::system_commands::get_database_status,
             commands::scanner_commands::scan_folder,
+            commands::scanner_commands::start_scan_job,
             commands::scanner_commands::scan_folder_preview,
             commands::scanner_commands::get_scan_stats,
             commands::scanner_commands::get_scan_history,
