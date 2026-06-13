@@ -2,18 +2,33 @@ import { useEffect, useState } from "react";
 
 import { StatCard } from "../../components/ui/StatCard";
 import { ipc } from "../../lib/ipc";
-import type { AppStatus, DatabaseStatus } from "../../types/ipc";
+import type {
+  AppStatus,
+  DatabaseStatus,
+  ScanStats,
+} from "../../types/ipc";
 
 type Status =
   | { kind: "loading" }
-  | { kind: "ready"; app: AppStatus; db: DatabaseStatus }
+  | {
+      kind: "ready";
+      app: AppStatus;
+      db: DatabaseStatus;
+      stats: ScanStats | null;
+    }
   | { kind: "error"; message: string };
 
-/**
- * Dashboard: first screen after launch. Confirms the React → Rust IPC
- * link is healthy and surfaces the core counters that real widgets
- * will eventually consume.
- */
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const power = Math.min(
+    units.length - 1,
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+  );
+  const value = bytes / Math.pow(1024, power);
+  return `${value.toFixed(power === 0 ? 0 : 1)} ${units[power]}`;
+}
+
 export function DashboardPage() {
   const [status, setStatus] = useState<Status>({ kind: "loading" });
 
@@ -22,11 +37,14 @@ export function DashboardPage() {
 
     (async () => {
       try {
-        const [app, db] = await Promise.all([
+        const [app, db, stats] = await Promise.all([
           ipc.getAppStatus(),
           ipc.getDatabaseStatus(),
+          ipc
+            .getScanStats()
+            .catch(() => null),
         ]);
-        if (!cancelled) setStatus({ kind: "ready", app, db });
+        if (!cancelled) setStatus({ kind: "ready", app, db, stats });
       } catch (err) {
         if (!cancelled) {
           setStatus({
@@ -90,9 +108,27 @@ export function DashboardPage() {
         />
       </div>
 
+      {status.stats && (
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+          <StatCard
+            label="Tracked files"
+            value={status.stats.total.toString()}
+            hint={formatBytes(status.stats.total_bytes)}
+          />
+          <StatCard
+            label="Active"
+            value={status.stats.active.toString()}
+            tone="ok"
+          />
+          <StatCard label="Archived" value={status.stats.archived.toString()} />
+          <StatCard label="Trashed" value={status.stats.trashed.toString()} />
+          <StatCard label="Deleted" value={status.stats.deleted.toString()} />
+        </div>
+      )}
+
       <div className="rounded-xl border border-vault-border bg-vault-surface p-6 text-sm text-slate-300">
-        Feature widgets (recent archives, trash count, duplicate groups)
-        will mount here once the corresponding services are wired up.
+        Tip: head to the <span className="text-vault-accent">Scanner</span> tab
+        to index a folder for the first time.
       </div>
     </section>
   );

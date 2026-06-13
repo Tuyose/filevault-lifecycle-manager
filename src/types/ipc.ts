@@ -21,3 +21,29 @@ export type ArchiveAck = {
 export type TrashAck = {
   accepted: boolean;
 };
+
+export type ScanErrorItem = {
+  path: string;
+  message: string;
+};
+
+export type ScanSummary = {
+  root: string;
+  total_seen: number;
+  inserted: number;
+  updated: number;
+  errors: number;
+  total_bytes: number;
+  started_at: string;
+  finished_at: string;
+  error_samples: ScanErrorItem[];
+};
+
+export type ScanStats = {
+  total: number;
+  total_bytes: number;
+  active: number;
+  archived: number;
+  trashed: number;
+  deleted: number;
+};

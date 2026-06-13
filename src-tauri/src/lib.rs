@@ -12,24 +12,32 @@ pub mod errors;
 pub mod models;
 pub mod services;
 
+use std::path::PathBuf;
+
 use std::sync::Arc;
 
 use tauri::Manager;
 
 use crate::db::Database;
+use crate::services::file_service::FileService;
 
 /// Shared, immutable application state handed to Tauri commands.
 ///
-/// Cloning is cheap — the inner `Database` is wrapped in `Arc`, so we
-/// can hand it to every command without lifetime gymnastics.
+/// Cloning is cheap — the inner `Database` and `FileService` are
+/// internally reference counted, so we can hand them to every command
+/// without lifetime gymnastics.
 #[derive(Clone)]
 pub struct AppState {
     pub database: Arc<Database>,
+    pub files: Arc<FileService>,
 }
 
 impl AppState {
     pub fn new(database: Arc<Database>) -> Self {
-        Self { database }
+        let pool = database.pool().clone();
+        let db_path = database.path().to_path_buf();
+        let files = Arc::new(FileService::with_db_path(pool, db_path));
+        Self { database, files }
     }
 }
 
@@ -42,9 +50,10 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Resolve a per-app data directory and bootstrap the SQLite file there.
-            let data_dir = app
+            let data_dir: PathBuf = app
                 .path()
                 .app_data_dir()
                 .expect("failed to resolve app data directory");
@@ -63,7 +72,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::system_commands::get_app_status,
             commands::system_commands::get_database_status,
+            commands::scanner_commands::scan_folder,
             commands::scanner_commands::scan_folder_preview,
+            commands::scanner_commands::get_scan_stats,
             commands::archive_commands::archive_placeholder,
             commands::trash_commands::trash_placeholder,
         ])

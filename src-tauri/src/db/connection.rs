@@ -94,6 +94,7 @@ async fn ping_async(pool: SqlitePool) -> AppResult<bool> {
 
 /// Unifies the two error sources (inner future + runtime) into a single
 /// `AppError` at the sync boundary.
+#[allow(dead_code)]
 enum RunError {
     Inner(AppError),
     Runtime(String),
