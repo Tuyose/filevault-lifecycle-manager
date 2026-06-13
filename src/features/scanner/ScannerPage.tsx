@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import { dialogs, ipc } from "../../lib/ipc";
-import type { ScanProgress, ScanStats, ScanSummary } from "../../types/ipc";
+import type { ScanProgress, ScanRun, ScanStats, ScanSummary } from "../../types/ipc";
 import { StatCard } from "../../components/ui/StatCard";
 
 type Phase = "idle" | "counting" | "scanning" | "paused" | "done" | "error" | "cancelled";
@@ -23,6 +23,16 @@ function formatDuration(startedAt: string, finishedAt: string): string {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function ScannerPage() {
   const [folder, setFolder] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -30,6 +40,7 @@ export function ScannerPage() {
   const [stats, setStats] = useState<ScanStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
+  const [history, setHistory] = useState<ScanRun[]>([]);
   const unlistenRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -41,6 +52,7 @@ export function ScannerPage() {
   useEffect(() => {
     let cancelled = false;
     ipc.getScanStats().then((v) => { if (!cancelled) setStats(v); }).catch(() => {});
+    ipc.getScanHistory().then((v) => { if (!cancelled) setHistory(v); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
@@ -75,8 +87,12 @@ export function ScannerPage() {
     try {
       const result = await ipc.scanFolder(folder);
       setSummary(result);
-      const next = await ipc.getScanStats();
+      const [next, h] = await Promise.all([
+        ipc.getScanStats(),
+        ipc.getScanHistory(),
+      ]);
       setStats(next);
+      setHistory(h);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       if (phase !== "cancelled") setPhase("error");
@@ -248,6 +264,9 @@ export function ScannerPage() {
       )}
 
       {summary && <ScanResultCard summary={summary} />}
+
+      {/* ── Scan history ── */}
+      {history.length > 0 && <ScanHistoryCard history={history} />}
     </section>
   );
 }
@@ -298,6 +317,60 @@ function ScanResultCard({ summary }: { summary: ScanSummary }) {
           </ul>
         </details>
       )}
+    </div>
+  );
+}
+
+function ScanHistoryCard({ history }: { history: ScanRun[] }) {
+  return (
+    <div className="rounded-xl border border-vault-border bg-vault-surface p-5">
+      <h2 className="text-base font-semibold text-slate-100">Scan history</h2>
+      <p className="mt-0.5 text-xs text-vault-muted">Last {history.length} runs, newest first</p>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-vault-border text-xs uppercase tracking-widest text-vault-muted">
+              <th className="pb-2 pr-4">When</th>
+              <th className="pb-2 pr-4">Status</th>
+              <th className="pb-2 pr-4">Files</th>
+              <th className="pb-2 pr-4">New</th>
+              <th className="pb-2 pr-4">Duration</th>
+              <th className="pb-2 pr-4">Size</th>
+              <th className="pb-2">Root</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((run) => (
+              <tr key={run.id} className="border-b border-vault-border/40 text-slate-200 last:border-0">
+                <td className="py-2 pr-4 text-xs text-vault-muted">{formatTime(run.finished_at)}</td>
+                <td className="py-2 pr-4">
+                  <span
+                    className={
+                      run.status === "completed"
+                        ? "text-emerald-300"
+                        : run.status === "cancelled"
+                          ? "text-amber-300"
+                          : "text-rose-300"
+                    }
+                  >
+                    {run.status}
+                  </span>
+                </td>
+                <td className="py-2 pr-4 font-mono">{run.total_seen}</td>
+                <td className="py-2 pr-4 font-mono text-emerald-300">{run.inserted}</td>
+                <td className="py-2 pr-4 font-mono text-vault-muted">
+                  {formatDuration(run.started_at, run.finished_at)}
+                </td>
+                <td className="py-2 pr-4 font-mono text-vault-muted">{formatBytes(run.total_bytes)}</td>
+                <td className="py-2 max-w-64 truncate font-mono text-xs text-vault-muted">
+                  {run.root_path}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

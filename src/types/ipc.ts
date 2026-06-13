@@ -55,3 +55,16 @@ export type ScanProgress = {
   current_dir: string;
   phase: "Counting" | "Scanning" | "Done";
 };
+
+export type ScanRun = {
+  id: string;
+  root_path: string;
+  started_at: string;
+  finished_at: string;
+  total_seen: number;
+  inserted: number;
+  updated: number;
+  errors: number;
+  total_bytes: number;
+  status: "completed" | "cancelled" | "error";
+};

@@ -2,10 +2,13 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
+use uuid::Uuid;
 
 use crate::core::scanner::{ProgressCallback, ScanProgress, ScanSummary};
+use crate::db::repositories::scan_run_repository::ScanRunRepository;
 use crate::db::repositories::file_repository::FileStats;
 use crate::errors::AppError;
+use crate::models::scan_run::{ScanRun, ScanRunStatus};
 use crate::AppState;
 
 /// Placeholder — kept for backward compat. See `scan_folder`.
@@ -24,8 +27,8 @@ pub fn scan_folder_preview(path: String) -> ScanPreview {
 }
 
 /// Recursively scan `path` and persist metadata to the database.
-/// Streams `scan:progress` events. Respects pause / cancel via the
-/// scan controller in AppState.
+/// Streams `scan:progress` events. Records a `scan_runs` row on
+/// completion, cancellation, or error.
 #[tauri::command]
 pub async fn scan_folder(
     app: AppHandle,
@@ -37,8 +40,6 @@ pub async fn scan_folder(
     }
 
     let root = PathBuf::from(&path);
-
-    // Reset the controller so a previous cancel/pause doesn't linger.
     let controller = state.scan_controller.clone();
     controller.reset();
 
@@ -47,11 +48,40 @@ pub async fn scan_folder(
         let _ = app_clone.emit("scan:progress", &progress);
     });
 
-    state
+    let result = state
         .files
         .scan_with_progress(&root, on_progress, Some(controller))
-        .await
-        .map_err(|err| err.to_string())
+        .await;
+
+    // Determine status and persist a scan_run regardless of outcome.
+    let (summary, status) = if let Ok(s) = &result {
+        (s.clone(), ScanRunStatus::Completed)
+    } else {
+        // Error: build a minimal run so we still record the attempt.
+        let partial = ScanSummary {
+            root: root.display().to_string(),
+            ..Default::default()
+        };
+        (partial, ScanRunStatus::Error)
+    };
+
+    let pool = state.database.pool().clone();
+    let repo = ScanRunRepository::new(pool);
+    let run = ScanRun {
+        id: Uuid::new_v4().to_string(),
+        root_path: summary.root.clone(),
+        started_at: summary.started_at,
+        finished_at: summary.finished_at,
+        total_seen: summary.total_seen,
+        inserted: summary.inserted,
+        updated: summary.updated,
+        errors: summary.errors,
+        total_bytes: summary.total_bytes,
+        status,
+    };
+    let _ = repo.insert(&run).await;
+
+    result.map_err(|err| err.to_string())
 }
 
 /// Aggregate stats for the dashboard / scan summary views.
@@ -64,6 +94,16 @@ pub async fn get_scan_stats(
         .aggregate_stats()
         .await
         .map_err(|err| err.to_string())
+}
+
+/// Return the 20 most recent scan runs.
+#[tauri::command]
+pub async fn get_scan_history(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ScanRun>, String> {
+    let pool = state.database.pool().clone();
+    let repo = ScanRunRepository::new(pool);
+    repo.list(20).await.map_err(|err| err.to_string())
 }
 
 /// Pause the running scan (if any).

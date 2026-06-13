@@ -4,3 +4,4 @@
 pub mod app_settings;
 pub mod file_record;
 pub mod lifecycle_event;
+pub mod scan_run;
