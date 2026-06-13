@@ -102,6 +102,21 @@ export type SchedulerStatus = {
   next_scan_label: string;
 };
 
+export type ScanJob = {
+  id: string;
+  path: string;
+  source: "manual" | "watch-folder" | "scheduled";
+  watch_folder_id?: string;
+  status: "idle" | "counting" | "scanning" | "paused" | "cancelled" | "completed" | "error";
+  started_at?: string;
+  finished_at?: string;
+  processed: number;
+  total_files: number;
+  current_path?: string;
+  current_dir?: string;
+  error_message?: string;
+};
+
 export type AnalyticsSnapshot = {
   id: string;
   created_at: string;

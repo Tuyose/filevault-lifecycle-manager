@@ -8,6 +8,7 @@ import type {
   DatabaseStatus,
   DuplicateGroup,
   HealthBreakdown,
+  ScanJob,
   SchedulerStatus,
   ScanPreview,
   ScanRun,
@@ -50,6 +51,7 @@ export const ipc = {
   getDashboardAnalytics: () => invoke<AnalyticsSnapshot[]>("get_dashboard_analytics"),
   getHealthBreakdown: () => invoke<HealthBreakdown>("get_health_breakdown"),
   getScanTrends: () => invoke<AnalyticsSnapshot[]>("get_scan_trends"),
+  getActiveScanJob: () => invoke<ScanJob | null>("get_active_scan_job"),
 };
 
 export const dialogs = {

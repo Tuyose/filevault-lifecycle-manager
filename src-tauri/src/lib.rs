@@ -12,7 +12,8 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
-use crate::core::scan_controller::ScanController;
+use core::scan_controller::ScanController;
+use core::scan_job::ScanJobManager;
 use crate::db::repositories::watch_folder_repository::WatchFolderRepository;
 use crate::db::Database;
 use crate::services::file_service::FileService;
@@ -24,6 +25,7 @@ pub struct AppState {
     pub database: Arc<Database>,
     pub files: Arc<FileService>,
     pub scan_controller: Arc<ScanController>,
+    pub scan_job_manager: Arc<ScanJobManager>,
     pub scheduler: Arc<SchedulerService>,
 }
 
@@ -38,6 +40,7 @@ impl AppState {
             database,
             files,
             scan_controller: Arc::new(ScanController::new()),
+            scan_job_manager: Arc::new(ScanJobManager::new()),
             scheduler,
         }
     }
@@ -89,6 +92,7 @@ pub fn run() {
             commands::scanner_commands::resume_scan,
             commands::scanner_commands::cancel_scan,
             commands::analytics_commands::get_dashboard_analytics,
+            commands::scanner_commands::get_active_scan_job,
             commands::analytics_commands::get_health_breakdown,
             commands::analytics_commands::get_scan_trends,
             commands::watch_folder_commands::list_watch_folders,

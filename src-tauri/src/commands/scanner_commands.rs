@@ -11,7 +11,19 @@ use crate::db::repositories::scan_run_repository::ScanRunRepository;
 use crate::errors::AppError;
 use crate::models::duplicate_group::DuplicateGroup;
 use crate::models::scan_run::{ScanRun, ScanRunStatus};
+use crate::services::analytics_service::AnalyticsService;
+use crate::core::scan_job::{ScanJob, ScanJobStatus, ScanSource};
 use crate::AppState;
+
+// ... (existing commands)
+
+/// Return the currently active scan job, or null if idle.
+#[tauri::command]
+pub async fn get_active_scan_job(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<ScanJob>, String> {
+    Ok(state.scan_job_manager.get().await)
+}
 /// Placeholder — kept for backward compat. See `scan_folder`.
 #[derive(Debug, Serialize)]
 pub struct ScanPreview {
