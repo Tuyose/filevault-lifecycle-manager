@@ -125,30 +125,84 @@ export function topFoldersBySize(
 }
 
 /**
- * Group duplicate groups by their most common parent folder.
- * Returns a Map<folder, DuplicateGroup[]>.
- */
-export function groupGroupsByFolder(
-  groups: DuplicateGroup[],
-): Map<string, DuplicateGroup[]> {
-  const map = new Map<string, DuplicateGroup[]>();
+ /**
+  * Group duplicate groups by their most common parent folder.
+  * Returns a Map<folder, DuplicateGroup[]>.
+  */
+ export function groupGroupsByFolder(
+   groups: DuplicateGroup[],
+ ): Map<string, DuplicateGroup[]> {
+   const map = new Map<string, DuplicateGroup[]>();
 
-  for (const group of groups) {
-    // Determine the "home" folder as the parent of the first file
-    const firstFile = group.files[0];
-    if (!firstFile) continue;
-    const folder = parentFolder(firstFile.path);
+   for (const group of groups) {
+     const firstFile = group.files[0];
+     if (!firstFile) continue;
+     const folder = parentFolder(firstFile.path);
 
-    const existing = map.get(folder);
-    if (existing) {
-      existing.push(group);
-    } else {
-      map.set(folder, [group]);
-    }
-  }
+     const existing = map.get(folder);
+     if (existing) {
+       existing.push(group);
+     } else {
+       map.set(folder, [group]);
+     }
+   }
 
-  return map;
-}
+   return map;
+ }
+
+ /**
+  * Group duplicate groups first by scan root, then by sub-folder.
+  *
+  * For each file in each duplicate group, the longest-matching scan root
+  * is determined by path prefix. Groups where no file matches any known
+  * root are placed under an "Other" bucket.
+  */
+ export function groupGroupsByScanRoot(
+   groups: DuplicateGroup[],
+   roots: string[],
+ ): Map<string, Map<string, DuplicateGroup[]>> {
+   const rootOrder = [...roots].sort((a, b) => b.length - a.length); // longest first
+
+   function findRoot(filePath: string): string {
+     const norm = filePath.replace(/\\/g, "/").toLowerCase();
+     for (const root of rootOrder) {
+       const normRoot = root.replace(/\\/g, "/").toLowerCase();
+       if (norm.startsWith(normRoot)) return root;
+     }
+     return "(unknown)";
+   }
+
+   const result = new Map<string, Map<string, DuplicateGroup[]>>();
+
+   for (const group of groups) {
+     const sampleFile = group.files[0];
+     if (!sampleFile) continue;
+     const root = findRoot(sampleFile.path);
+     const folder = parentFolder(sampleFile.path);
+
+     // Compute a relative path for display: strip the root prefix
+     const normRoot = root.replace(/\\/g, "/");
+     const normPath = folder.replace(/\\/g, "/");
+     const displayFolder = normPath.startsWith(normRoot)
+       ? normPath.slice(normRoot.length).replace(/^\//, "") || "/"
+       : folder;
+
+     let rootMap = result.get(root);
+     if (!rootMap) {
+       rootMap = new Map<string, DuplicateGroup[]>();
+       result.set(root, rootMap);
+     }
+
+     const existing = rootMap.get(displayFolder);
+     if (existing) {
+       existing.push(group);
+     } else {
+       rootMap.set(displayFolder, [group]);
+     }
+   }
+
+   return result;
+ }
 
 /** Format bytes to human-readable string. */
 export function formatBytes(bytes: number): string {

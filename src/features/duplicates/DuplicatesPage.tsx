@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { ipc } from "../../lib/ipc";
-import type { DuplicateGroup } from "../../types/ipc";
+import type { DuplicateGroup, ScanRun } from "../../types/ipc";
 import { StatCard } from "../../components/ui/StatCard";
 import {
   formatBytes,
   shortenPath,
   topDuplicateFolders,
-  groupGroupsByFolder,
+  groupGroupsByScanRoot,
   fileCategory,
 } from "../../lib/folder-insights";
 
@@ -21,8 +21,36 @@ const SIZE_THRESHOLDS: Record<SizeFilter, number> = {
   "1gb": 1024 * 1024 * 1024,
 };
 
+/** Sum wasted bytes across all folders in a root map. */
+function sumFolderWasted(folders: Map<string, DuplicateGroup[]>): number {
+  let total = 0;
+  for (const groups of folders.values()) {
+    total += groups.reduce((s, g) => s + g.total_wasted_bytes, 0);
+  }
+  return total;
+}
+
+/** Sum total files across all folders in a root map. */
+function sumFolderFiles(folders: Map<string, DuplicateGroup[]>): number {
+  let total = 0;
+  for (const groups of folders.values()) {
+    total += groups.reduce((s, g) => s + g.total_files, 0);
+  }
+  return total;
+}
+
+/** Sum total groups across all folders in a root map. */
+function sumFolderGroups(folders: Map<string, DuplicateGroup[]>): number {
+  let total = 0;
+  for (const groups of folders.values()) {
+    total += groups.length;
+  }
+  return total;
+}
+
 export function DuplicatesPage() {
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
+  const [roots, setRoots] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sizeFilter, setSizeFilter] = useState<SizeFilter>("all");
@@ -32,8 +60,16 @@ export function DuplicatesPage() {
 
   useEffect(() => {
     let cancelled = false;
-    ipc.getDuplicateGroups()
-      .then((g) => { if (!cancelled) setGroups(g); })
+    Promise.all([
+      ipc.getDuplicateGroups(),
+      ipc.getScanHistory().catch(() => [] as ScanRun[]),
+    ])
+      .then(([g, h]) => {
+        if (!cancelled) {
+          setGroups(g);
+          setRoots(h.map((r) => r.root_path));
+        }
+      })
       .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -55,17 +91,17 @@ export function DuplicatesPage() {
     return result;
   }, [groups, sizeFilter, catFilter]);
 
-  const byFolder = useMemo(() => groupGroupsByFolder(filtered), [filtered]);
+  const byFolder = useMemo(() => groupGroupsByScanRoot(filtered, roots), [filtered, roots]);
 
-  // Sort folders by total duplicate bytes descending
-  const sortedFolders = useMemo(() => {
-    const folderGroups = Array.from(byFolder.entries());
-    folderGroups.sort(([, a], [, b]) => {
-      const wastedA = a.reduce((s, g) => s + g.total_wasted_bytes, 0);
-      const wastedB = b.reduce((s, g) => s + g.total_wasted_bytes, 0);
+  // Sort roots by total wasted bytes descending
+  const sortedRoots = useMemo(() => {
+    const entries = Array.from(byFolder.entries());
+    entries.sort(([, aFolders], [, bFolders]) => {
+      const wastedA = sumFolderWasted(aFolders);
+      const wastedB = sumFolderWasted(bFolders);
       return wastedB - wastedA;
     });
-    return folderGroups;
+    return entries;
   }, [byFolder]);
 
   const totalDupFiles = filtered.reduce((s, g) => s + g.total_files, 0);
@@ -74,10 +110,10 @@ export function DuplicatesPage() {
   const hotspots = topDuplicateFolders(filtered, 1);
   const mostAffected = hotspots.length > 0 ? shortenPath(hotspots[0].path, 2) : "—";
 
-  const toggleFolder = (folder: string) => {
+  const toggleRoot = (root: string) => {
     setExpandedFolders((prev) => {
       const next = new Set(prev);
-      if (next.has(folder)) next.delete(folder); else next.add(folder);
+      if (next.has(root)) next.delete(root); else next.add(root);
       return next;
     });
   };
@@ -99,8 +135,8 @@ export function DuplicatesPage() {
       <header>
         <h1 className="text-2xl font-semibold text-slate-100">Duplicates</h1>
         <p className="mt-1 text-sm text-vault-muted">
-          Files sharing the same BLAKE3 content hash. Grouped by folder so you can see
-          where the biggest savings are.
+          Files grouped by scan root, then folder. This keeps duplicates from different
+          projects separate even if they share the same file name.
         </p>
       </header>
 
@@ -130,82 +166,125 @@ export function DuplicatesPage() {
         ))}
       </div>
 
-      {/* ── Folder-first grouping ── */}
-      {sortedFolders.length === 0 && (
+      {/* ── Root-first grouping ── */}
+      {sortedRoots.length === 0 && (
         <div className="rounded-xl border border-dashed border-vault-border p-8 text-center text-sm text-vault-muted">
           {groups.length === 0 ? "No duplicates found. Run a scan first." : "No duplicates match the current filters."}
         </div>
       )}
 
       <div className="flex flex-col gap-4">
-        {sortedFolders.map(([folder, folderGroups]) => {
-          const folderWasted = folderGroups.reduce((s, g) => s + g.total_wasted_bytes, 0);
-          const folderFiles = folderGroups.reduce((s, g) => s + g.total_files, 0);
-          const isExpanded = expandedFolders.has(folder);
+        {sortedRoots.map(([root, folders]) => {
+          const rootWasted = sumFolderWasted(folders);
+          const rootFiles = sumFolderFiles(folders);
+          const rootGroups = sumFolderGroups(folders);
+          const isRootExpanded = expandedFolders.has(root);
+          const rootLabel = shortenPath(root, 2);
 
           return (
-            <div key={folder} className="rounded-xl border border-vault-border bg-vault-surface overflow-hidden">
-              {/* Folder header */}
-              <button type="button" onClick={() => toggleFolder(folder)}
+            <div key={root} className="rounded-xl border border-vault-border bg-vault-surface overflow-hidden">
+              {/* Root header */}
+              <button type="button" onClick={() => toggleRoot(root)}
                 className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-white/5">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className={`text-xs transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
-                    <span className="font-mono text-sm font-semibold text-slate-100" title={folder}>
-                      {shortenPath(folder, 4)}
+                    <span className={`text-xs transition-transform ${isRootExpanded ? "rotate-90" : ""}`}>▶</span>
+                    <span className="font-mono text-sm font-semibold text-slate-100" title={root}>
+                      {rootLabel}
+                    </span>
+                    <span className="rounded-md bg-vault-bg px-1.5 py-0.5 font-mono text-[11px] text-vault-muted">
+                      {rootGroups} groups
                     </span>
                   </div>
                   <div className="mt-0.5 text-xs text-vault-muted">
-                    {folderGroups.length} groups · {folderFiles} files · {formatBytes(folderWasted)} reclaimable
+                    {rootFiles} files · {formatBytes(rootWasted)} reclaimable
                   </div>
                 </div>
                 <span className="shrink-0 rounded-md bg-amber-500/10 px-2.5 py-1 font-mono text-xs text-amber-300">
-                  {formatBytes(folderWasted)}
+                  {formatBytes(rootWasted)}
                 </span>
               </button>
 
-              {/* Expanded: duplicate groups inside this folder */}
-              {isExpanded && (
-                <div className="border-t border-vault-border/50 px-5 py-3">
-                  {folderGroups.map((group) => {
-                    const sampleName = group.files[0]?.path.split(/[/\\]/).pop() ?? "unknown";
-                    const gExpanded = expandedGroups.has(group.hash);
-                    const wastePerKeep = group.total_wasted_bytes - (group.total_wasted_bytes / group.total_files);
+              {/* Expanded: sub-folders with groups */}
+              {isRootExpanded && (
+                <div className="border-t border-vault-border/50 px-5 py-3 space-y-3">
+                  {Array.from(folders.entries())
+                    .sort(([, a], [, b]) => {
+                      const wa = a.reduce((s, g) => s + g.total_wasted_bytes, 0);
+                      const wb = b.reduce((s, g) => s + g.total_wasted_bytes, 0);
+                      return wb - wa;
+                    })
+                    .map(([folder, folderGroups]) => {
+                      const folderWasted = folderGroups.reduce((s, g) => s + g.total_wasted_bytes, 0);
+                      const folderFiles = folderGroups.reduce((s, g) => s + g.total_files, 0);
+                      const fKey = `${root}::${folder}`;
+                      const isFolderExpanded = expandedFolders.has(fKey);
 
-                    return (
-                      <div key={group.hash} className="mb-2 last:mb-0">
-                        <button type="button" onClick={() => toggleGroup(group.hash)}
-                          className="flex w-full items-center justify-between gap-3 rounded-lg bg-vault-bg px-3 py-2 text-left transition-colors hover:bg-white/5">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className={`text-[10px] text-vault-muted transition-transform ${gExpanded ? "rotate-90" : ""}`}>▶</span>
-                              <span className="truncate font-mono text-xs text-slate-200">{sampleName}</span>
-                              <span className="shrink-0 text-xs text-vault-muted">×{group.total_files}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="font-mono text-xs text-vault-muted">{formatBytes(group.total_wasted_bytes)}</span>
-                            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[11px] text-amber-300">{formatBytes(wastePerKeep)}</span>
-                          </div>
-                        </button>
-
-                        {/* Expanded: file list + hash */}
-                        {gExpanded && (
-                          <div className="ml-4 mt-1 space-y-0.5">
-                            <div className="rounded bg-vault-bg/60 px-3 py-1.5 font-mono text-[11px] text-vault-muted break-all">
-                              Hash: {group.hash}
-                            </div>
-                            {group.files.map((f) => (
-                              <div key={f.id} className="flex items-center gap-3 rounded bg-vault-bg/40 px-3 py-1 font-mono text-[11px] text-slate-300">
-                                <span className="w-14 shrink-0 text-vault-muted">{formatBytes(f.size_bytes)}</span>
-                                <span className="min-w-0 truncate" title={f.path}>{f.path}</span>
+                      return (
+                        <div key={fKey}>
+                          {/* Sub-folder header */}
+                          <button type="button" onClick={() => toggleRoot(fKey)}
+                            className="flex w-full items-center justify-between gap-3 rounded-lg bg-vault-bg px-3 py-2 text-left transition-colors hover:bg-white/5">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[10px] text-vault-muted transition-transform ${isFolderExpanded ? "rotate-90" : ""}`}>▶</span>
+                                <span className="font-mono text-xs text-slate-200" title={folder}>
+                                  {folder === "/" ? "/" : shortenPath(folder, 3)}
+                                </span>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                              <div className="mt-0.5 text-[11px] text-vault-muted">
+                                {folderGroups.length} groups · {folderFiles} files · {formatBytes(folderWasted)}
+                              </div>
+                            </div>
+                            <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[11px] text-amber-300">
+                              {formatBytes(folderWasted)}
+                            </span>
+                          </button>
+
+                          {/* Expanded: groups inside this sub-folder */}
+                          {isFolderExpanded && (
+                            <div className="ml-3 mt-1 space-y-1">
+                              {folderGroups.map((group) => {
+                                const sampleName = group.files[0]?.path.split(/[/\\]/).pop() ?? "unknown";
+                                const gExpanded = expandedGroups.has(group.hash);
+                                const wastePerKeep = group.total_wasted_bytes - (group.total_wasted_bytes / group.total_files);
+
+                                return (
+                                  <div key={group.hash}>
+                                    <button type="button" onClick={() => toggleGroup(group.hash)}
+                                      className="flex w-full items-center justify-between gap-2 rounded-md bg-vault-bg/60 px-3 py-1.5 text-left transition-colors hover:bg-white/5">
+                                      <div className="min-w-0 flex-1 flex items-center gap-2">
+                                        <span className={`text-[10px] text-vault-muted transition-transform ${gExpanded ? "rotate-90" : ""}`}>▶</span>
+                                        <span className="truncate font-mono text-xs text-slate-200">{sampleName}</span>
+                                        <span className="shrink-0 text-xs text-vault-muted">×{group.total_files}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="font-mono text-xs text-vault-muted">{formatBytes(group.total_wasted_bytes)}</span>
+                                        <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[11px] text-amber-300">{formatBytes(wastePerKeep)}</span>
+                                      </div>
+                                    </button>
+
+                                    {gExpanded && (
+                                      <div className="ml-4 mt-0.5 space-y-0.5">
+                                        <div className="rounded bg-vault-bg/40 px-3 py-1 font-mono text-[11px] text-vault-muted break-all">
+                                          Hash: {group.hash}
+                                        </div>
+                                        {group.files.map((f) => (
+                                          <div key={f.id} className="flex items-center gap-3 rounded bg-vault-bg/30 px-3 py-0.5 font-mono text-[11px] text-slate-300">
+                                            <span className="w-14 shrink-0 text-vault-muted">{formatBytes(f.size_bytes)}</span>
+                                            <span className="min-w-0 truncate" title={f.path}>{f.path}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>
