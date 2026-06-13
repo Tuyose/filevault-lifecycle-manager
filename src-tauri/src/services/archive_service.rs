@@ -40,6 +40,29 @@ pub async fn set_setting(pool: &sqlx::SqlitePool, key: &str, value: &str) -> App
     Ok(())
 }
 
+pub async fn delete_setting(pool: &sqlx::SqlitePool, key: &str) -> AppResult<()> {
+    sqlx::query("DELETE FROM app_settings WHERE key = ?")
+        .bind(key)
+        .execute(pool).await?;
+    Ok(())
+}
+
+/// Validate that an archive root path is usable: exists, is a directory, and is writable.
+pub async fn validate_archive_root(path: &std::path::Path) -> AppResult<()> {
+    if !path.exists() {
+        return Err(AppError::invalid("Archive root path does not exist."));
+    }
+    if !path.is_dir() {
+        return Err(AppError::invalid("Archive root must be a directory."));
+    }
+    // Write test
+    let test_file = path.join(".filevault_write_test");
+    match tokio::fs::write(&test_file, b"test").await {
+        Ok(()) => { let _ = tokio::fs::remove_file(&test_file).await; Ok(()) }
+        Err(_) => Err(AppError::invalid("FileVault cannot write to this folder.")),
+    }
+}
+
 /// Move a file safely — prefers rename, falls back to copy+verify+delete.
 async fn safe_move(src: &Path, dst: &Path) -> AppResult<()> {
     // Ensure parent dir exists

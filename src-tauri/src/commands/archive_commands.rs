@@ -30,8 +30,16 @@ pub async fn get_archive_root(state: tauri::State<'_, AppState>) -> Result<Optio
 
 #[tauri::command]
 pub async fn set_archive_root(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    archive_service::validate_archive_root(&p).await.map_err(|e| e.to_string())?;
     let pool = state.database.pool().clone();
     archive_service::set_setting(&pool, "archive.root_dir", &path).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_archive_root(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let pool = state.database.pool().clone();
+    archive_service::delete_setting(&pool, "archive.root_dir").await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
