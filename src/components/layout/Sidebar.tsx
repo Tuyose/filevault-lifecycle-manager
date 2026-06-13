@@ -1,73 +1,78 @@
-import { NavLink } from "react-router-dom";
+import { type LucideIcon, LayoutDashboard, BarChart3, FolderSearch, Eye, Sparkles, Clock, Settings } from "lucide-react";
+import { cn } from "../../lib/utils";
 
-const NAV = [
-  { to: "/", label: "Dashboard", icon: "◉" },
-  { to: "/scanner", label: "Scanner", icon: "◎" },
-  { to: "/archive", label: "Archive", icon: "▣" },
-  { to: "/trash", label: "Trash", icon: "⊝" },
-  { to: "/duplicates", label: "Duplicates", icon: "⊜" },
-  { to: "/settings", label: "Settings", icon: "⚙" },
+export type Screen =
+  | "overview"
+  | "analytics"
+  | "files"
+  | "watchfolders"
+  | "cleanup"
+  | "history"
+  | "settings";
+
+interface NavItem {
+  id: Screen;
+  label: string;
+  icon: LucideIcon;
+  route: string;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard, route: "/" },
+  { id: "analytics", label: "Analytics", icon: BarChart3, route: "/analytics" },
+  { id: "files", label: "Files", icon: FolderSearch, route: "/scanner" },
+  { id: "watchfolders", label: "Watch Folders", icon: Eye, route: "/watch-folders" },
+  { id: "cleanup", label: "Cleanup", icon: Sparkles, route: "/duplicates" },
+  { id: "history", label: "History", icon: Clock, route: "/history" },
+  { id: "settings", label: "Settings", icon: Settings, route: "/settings" },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  current: Screen;
+  onNavigate: (screen: Screen) => void;
+}
+
+export function Sidebar({ current, onNavigate }: SidebarProps) {
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col border-r border-vault-border bg-vault-surface/80 backdrop-blur-sm">
-      {/* App logo */}
-      <div className="flex h-[56px] items-center gap-3 border-b border-vault-border px-5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-[10px] bg-gradient-to-br from-vault-accent to-emerald-500 text-xs font-bold text-slate-900 shadow-sm shadow-vault-accent/20">
+    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+      {/* Logo */}
+      <div className="flex h-14 items-center gap-3 border-b border-sidebar-border px-5">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm shadow-primary/30">
           F
         </div>
-        <div className="text-sm font-semibold tracking-tight text-slate-100">
+        <span className="text-base font-semibold tracking-tight text-sidebar-foreground">
           FileVault
-        </div>
+        </span>
       </div>
 
       {/* Navigation */}
       <nav className="flex flex-1 flex-col gap-1 p-3">
-        {NAV.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/"}
-            className={({ isActive }) =>
-              [
-                "group relative flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm transition-all duration-[120ms] cubic-bezier(0.4,0,0.2,1)",
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const isActive = current === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onNavigate(item.id)}
+              className={cn(
+                "group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                 isActive
-                  ? "bg-vault-accent/8 text-vault-accent shadow-sm shadow-vault-accent/5"
-                  : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200",
-              ].join(" ")
-            }
-          >
-            {({ isActive }) => (
-              <>
-                {/* Active indicator glow */}
-                {isActive && (
-                  <span className="absolute inset-0 rounded-[10px] bg-vault-accent/[0.06] blur-sm" />
-                )}
-
-                {/* Icon */}
-                <span className="relative z-[1] w-5 text-center text-base leading-none">
-                  {item.icon}
-                </span>
-
-                {/* Label */}
-                <span className="relative z-[1] font-medium tracking-tight">
-                  {item.label}
-                </span>
-
-                {/* Active dot */}
-                {isActive && (
-                  <span className="relative z-[1] ml-auto h-1.5 w-1.5 rounded-full bg-vault-accent" />
-                )}
-              </>
-            )}
-          </NavLink>
-        ))}
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground/80",
+              )}
+            >
+              <Icon size={18} className={cn(isActive ? "text-primary" : "text-sidebar-foreground/40")} />
+              <span>{item.label}</span>
+              {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />}
+            </button>
+          );
+        })}
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-vault-border px-5 py-3">
-        <div className="text-[11px] text-vault-muted/60 tracking-tight">v0.1.0 · local-first</div>
+      <div className="border-t border-sidebar-border px-5 py-3">
+        <p className="text-xs text-sidebar-foreground/40">v0.1.0 · local-first</p>
       </div>
     </aside>
   );

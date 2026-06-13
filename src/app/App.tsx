@@ -1,11 +1,30 @@
-import { Sidebar } from "../components/layout/Sidebar";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Sidebar, type Screen } from "../components/layout/Sidebar";
 import { PageTransition } from "../components/layout/PageTransition";
 import { AppRoutes } from "./routes";
 
 export default function App() {
+  const navigate = useNavigate();
+  const [current, setCurrent] = useState<Screen>("overview");
+
+  const handleNavigate = (screen: Screen) => {
+    setCurrent(screen);
+    const routeMap: Record<Screen, string> = {
+      overview: "/",
+      analytics: "/analytics",
+      files: "/scanner",
+      watchfolders: "/watch-folders",
+      cleanup: "/duplicates",
+      history: "/history",
+      settings: "/settings",
+    };
+    navigate(routeMap[screen]);
+  };
+
   return (
-    <div className="flex h-full w-full bg-vault-bg text-slate-100">
-      <Sidebar />
+    <div className="flex h-full w-full">
+      <Sidebar current={current} onNavigate={handleNavigate} />
       <main className="flex-1 overflow-hidden">
         <PageTransition>
           <AppRoutes />
