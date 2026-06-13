@@ -1,0 +1,6 @@
+//! Domain types shared across the app. They are pure data + behaviour
+//! for serialising to / from the database; no I/O lives here.
+
+pub mod app_settings;
+pub mod file_record;
+pub mod lifecycle_event;

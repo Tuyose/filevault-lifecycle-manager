@@ -1,0 +1,52 @@
+[package]
+name = "filevault-lifecycle-manager"
+version = "0.1.0"
+description = "Local-first file lifecycle, archive, and dedup manager"
+authors = ["FileVault"]
+edition = "2021"
+
+[lib]
+name = "filevault_lifecycle_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync"] }
+
+# Database (SQLite)
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "macros",
+    "chrono",
+    "uuid",
+    "json",
+    "migrate"
+] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Identifiers
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Hashing (planned for duplicate detection / integrity)
+blake3 = "1"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
