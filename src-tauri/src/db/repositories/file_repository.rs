@@ -357,3 +357,31 @@ impl From<DuplicateFileRow> for DuplicateFile {
         }
     }
 }
+
+// ── Archive / Restore repository helpers ────────────────────
+
+impl FileRepository {
+    pub async fn archive_file_repo(&self, file_id: &str, archived_path: &str, archived_at: DateTime<Utc>) -> AppResult<()> {
+        sqlx::query("UPDATE files SET status='archived', current_path=?, archived_at=?, last_seen_at=? WHERE id=?")
+            .bind(archived_path).bind(archived_at).bind(Utc::now()).bind(file_id)
+            .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn mark_restored(&self, file_id: &str, restored_path: &str) -> AppResult<()> {
+        sqlx::query("UPDATE files SET status='active', current_path=?, archived_at=NULL, last_seen_at=? WHERE id=?")
+            .bind(restored_path).bind(Utc::now()).bind(file_id)
+            .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn list_archived_files_repo(&self, limit: i64, offset: i64) -> AppResult<Vec<FileRecord>> {
+        let rows: Vec<FileRecordRow> = sqlx::query_as("SELECT * FROM files WHERE status='archived' ORDER BY archived_at DESC LIMIT ? OFFSET ?").bind(limit).bind(offset).fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn count_by_status(&self, status: &str) -> AppResult<i64> {
+        let row = sqlx::query("SELECT COUNT(*) FROM files WHERE status=?").bind(status).fetch_one(&self.pool).await?;
+        Ok(row.get(0))
+    }
+}

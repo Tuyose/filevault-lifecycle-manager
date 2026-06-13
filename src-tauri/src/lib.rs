@@ -103,6 +103,12 @@ pub fn run() {
             commands::watch_folder_commands::toggle_watch_folder,
             commands::watch_folder_commands::run_watch_folder_scan,
             commands::watch_folder_commands::get_scheduler_status,
+            commands::archive_commands::get_archive_root,
+            commands::archive_commands::set_archive_root,
+            commands::archive_commands::archive_file,
+            commands::archive_commands::restore_file,
+            commands::archive_commands::list_archived_files,
+            commands::archive_commands::get_archive_info,
             commands::archive_commands::archive_placeholder,
             commands::trash_commands::trash_placeholder,
         ])

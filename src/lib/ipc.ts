@@ -5,9 +5,12 @@ import type {
   AnalyticsSnapshot,
   AppStatus,
   ArchiveAck,
+  ArchiveInfo,
+  ArchiveResult,
   DatabaseStatus,
   DuplicateGroup,
   HealthBreakdown,
+  RestoreResult,
   ScanJob,
   SchedulerStatus,
   ScanPreview,
@@ -53,6 +56,13 @@ export const ipc = {
   getScanTrends: () => invoke<AnalyticsSnapshot[]>("get_scan_trends"),
   getActiveScanJob: () => invoke<ScanJob | null>("get_active_scan_job"),
   startScanJob: (args: { path: string; source: string; watch_folder_id?: string }) => invoke<ScanJob>("start_scan_job", { args }),
+  // Archive
+  getArchiveRoot: () => invoke<string | null>("get_archive_root"),
+  setArchiveRoot: (path: string) => invoke<void>("set_archive_root", { path }),
+  archiveFile: (fileId: string) => invoke<ArchiveResult>("archive_file", { fileId }),
+  restoreFile: (fileId: string) => invoke<RestoreResult>("restore_file", { fileId }),
+  listArchivedFiles: () => invoke<any[]>("list_archived_files"),
+  getArchiveInfo: () => invoke<ArchiveInfo>("get_archive_info"),
 };
 
 export const dialogs = {

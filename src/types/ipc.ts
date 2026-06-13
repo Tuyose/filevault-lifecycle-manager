@@ -135,3 +135,22 @@ export type HealthBreakdown = {
   reclaimableRisk: number;
   tips: string[];
 };
+
+export type ArchiveResult = {
+  file_id: string;
+  original_path: string;
+  archived_path: string;
+  status: "archived";
+};
+
+export type RestoreResult = {
+  file_id: string;
+  restored_path: string;
+  status: "active";
+};
+
+export type ArchiveInfo = {
+  root?: string;
+  archivedCount: number;
+  archivedSizeBytes: number;
+};
