@@ -5,6 +5,7 @@ import { ipc } from "../../lib/ipc";
 import type {
   AppStatus,
   DatabaseStatus,
+  DuplicateGroup,
   ScanStats,
 } from "../../types/ipc";
 
@@ -31,20 +32,23 @@ function formatBytes(bytes: number): string {
 
 export function DashboardPage() {
   const [status, setStatus] = useState<Status>({ kind: "loading" });
+  const [duplicates, setDuplicates] = useState<DuplicateGroup[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const [app, db, stats] = await Promise.all([
+        const [app, db, stats, dups] = await Promise.all([
           ipc.getAppStatus(),
           ipc.getDatabaseStatus(),
-          ipc
-            .getScanStats()
-            .catch(() => null),
+          ipc.getScanStats().catch(() => null),
+          ipc.getDuplicateGroups().catch(() => null),
         ]);
-        if (!cancelled) setStatus({ kind: "ready", app, db, stats });
+        if (!cancelled) {
+          setStatus({ kind: "ready", app, db, stats });
+          setDuplicates(dups);
+        }
       } catch (err) {
         if (!cancelled) {
           setStatus({
@@ -123,6 +127,21 @@ export function DashboardPage() {
           <StatCard label="Archived" value={status.stats.archived.toString()} />
           <StatCard label="Trashed" value={status.stats.trashed.toString()} />
           <StatCard label="Deleted" value={status.stats.deleted.toString()} />
+        </div>
+      )}
+
+      {duplicates && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <StatCard label="Duplicate groups" value={duplicates.length.toString()} />
+          <StatCard
+            label="Duplicate files"
+            value={duplicates.reduce((s, g) => s + g.total_files, 0).toString()}
+          />
+          <StatCard
+            label="Reclaimable space"
+            value={formatBytes(duplicates.reduce((s, g) => s + g.total_wasted_bytes, 0))}
+            tone="warn"
+          />
         </div>
       )}
 

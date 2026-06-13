@@ -7,15 +7,17 @@ use crate::core::scan_controller::ScanController;
 use crate::core::scanner::{ProgressCallback, ScanSummary, Scanner};
 use crate::db::repositories::file_repository::{FileRepository, FileStats};
 use crate::errors::AppResult;
+use crate::services::hash_service::HashService;
 
 /// Coordinates file-related operations across repositories. Owns the
-/// scanner and the file repository, and hands commands a single
-/// dependency to talk to.
+/// scanner, hash service, and the file repository, and hands commands a
+/// single dependency to talk to.
 #[derive(Clone)]
 pub struct FileService {
     pool: SqlitePool,
     files: FileRepository,
     db_path: PathBuf,
+    hasher: HashService,
 }
 
 impl FileService {
@@ -25,6 +27,7 @@ impl FileService {
             pool,
             files,
             db_path: PathBuf::new(),
+            hasher: HashService::new(),
         }
     }
 
@@ -34,7 +37,13 @@ impl FileService {
             pool,
             files,
             db_path,
+            hasher: HashService::new(),
         }
+    }
+
+    pub fn with_hash_service(mut self, hasher: HashService) -> Self {
+        self.hasher = hasher;
+        self
     }
 
     pub fn repository(&self) -> &FileRepository {
@@ -59,6 +68,7 @@ impl FileService {
             scanner = scanner.with_skip_paths(sidecar_paths(&self.db_path));
         }
         scanner = scanner.with_progress_callback(on_progress);
+        scanner = scanner.with_hash_service(self.hasher.clone());
         if let Some(ctrl) = controller {
             scanner = scanner.with_controller(ctrl);
         }

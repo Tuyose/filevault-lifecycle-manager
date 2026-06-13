@@ -1,27 +1,59 @@
-use blake3::Hasher;
+use std::path::Path;
+use std::sync::Arc;
 
-/// Streaming BLAKE3 hasher. Chosen for:
-///   * very high throughput on modern CPUs
-///   * Merkle-tree mode (planned) for fast partial-file verification
-///   * small, audited Rust core
+use blake3::Hasher;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+use tokio::sync::Semaphore;
+
+use crate::errors::AppResult;
+
+/// Streaming BLAKE3 hasher with controlled concurrency.
 ///
-/// The real implementation will wrap a tokio file reader and feed
-/// chunks asynchronously. This stub exists so other modules can depend
-/// on the service without pulling in the full hashing pipeline yet.
-pub struct HashService;
+/// Uses a `tokio::sync::Semaphore` to limit the number of concurrent
+/// hash operations (default 4). Each hash streams the file in 64 KB
+/// chunks so memory usage stays bounded regardless of file size.
+#[derive(Clone)]
+pub struct HashService {
+    semaphore: Arc<Semaphore>,
+}
 
 impl HashService {
     pub fn new() -> Self {
-        Self
+        Self {
+            semaphore: Arc::new(Semaphore::new(4)),
+        }
     }
 
-    /// Hash a small in-memory blob. Used by tests and as a sanity
-    /// check that the dependency is wired up correctly.
-    pub fn hash_bytes(&self, bytes: &[u8]) -> String {
+    /// Create a hasher with a custom concurrency limit.
+    pub fn with_max_concurrent(max: usize) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(max)),
+        }
+    }
+
+    /// Compute the BLAKE3 hex digest of `path` by streaming the file
+    /// in 64 KB chunks. Respects the concurrency semaphore so callers
+    /// can call this for many files in parallel without exhausting the
+    /// system's I/O capacity.
+    pub async fn calculate_blake3(&self, path: &Path) -> AppResult<String> {
+        // Acquire a semaphore permit — this is what limits concurrency.
+        let _permit = self.semaphore.acquire().await;
+
+        let mut file = File::open(path).await?;
         let mut hasher = Hasher::new();
-        hasher.update(bytes);
+        let mut buf = vec![0u8; 65_536]; // 64 KB
+
+        loop {
+            let n = file.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+
         let hash = hasher.finalize();
-        hash.to_hex().to_string()
+        Ok(hash.to_hex().to_string())
     }
 }
 

@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 use crate::core::scan_controller::ScanController;
 use crate::db::repositories::file_repository::{FileRepository, FileUpsert, UpsertOutcome};
 use crate::errors::{AppError, AppResult};
+use crate::services::hash_service::HashService;
 use uuid::Uuid;
 
 // ── Public types ─────────────────────────────────────────────────
@@ -63,6 +64,7 @@ pub struct Scanner {
     skip_paths: Vec<PathBuf>,
     on_progress: Option<ProgressCallback>,
     controller: Option<Arc<ScanController>>,
+    hash_service: Option<HashService>,
 }
 
 impl Scanner {
@@ -72,6 +74,7 @@ impl Scanner {
             skip_paths: Vec::new(),
             on_progress: None,
             controller: None,
+            hash_service: None,
         }
     }
 
@@ -85,9 +88,13 @@ impl Scanner {
         self
     }
 
-    /// Attach a scan controller so the UI can pause / resume / cancel.
     pub fn with_controller(mut self, controller: Arc<ScanController>) -> Self {
         self.controller = Some(controller);
+        self
+    }
+
+    pub fn with_hash_service(mut self, hasher: HashService) -> Self {
+        self.hash_service = Some(hasher);
         self
     }
 
@@ -146,7 +153,23 @@ impl Scanner {
                         .unwrap_or_default();
 
                     match process_file(dir_entry.path(), &canonical_root).await {
-                        Ok(upsert) => {
+                        Ok(mut upsert) => {
+                            // Hash the file if a hash service is available.
+                            // Errors are collected but the scan continues.
+                            if let Some(ref hasher) = self.hash_service {
+                                match hasher.calculate_blake3(dir_entry.path()).await {
+                                    Ok(hash) => upsert.hash = Some(hash),
+                                    Err(err) => {
+                                        summary.errors += 1;
+                                        if summary.error_samples.len() < 10 {
+                                            summary.error_samples.push(ScanErrorItem {
+                                                path: current_path.clone(),
+                                                message: format!("hash error: {err}"),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
                             summary.total_bytes += upsert.size_bytes;
                             match self.files.upsert(&upsert).await? {
                                 UpsertOutcome::Inserted => summary.inserted += 1,
@@ -285,6 +308,7 @@ async fn process_file(path: &Path, _root: &Path) -> AppResult<FileUpsert> {
         file_name,
         extension,
         size_bytes,
+        hash: None,
         created_at: created_at.unwrap_or_else(Utc::now),
         modified_at,
         last_seen_at: Utc::now(),

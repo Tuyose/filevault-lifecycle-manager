@@ -75,6 +75,7 @@ pub fn run() {
             commands::scanner_commands::scan_folder_preview,
             commands::scanner_commands::get_scan_stats,
             commands::scanner_commands::get_scan_history,
+            commands::scanner_commands::get_duplicate_groups,
             commands::scanner_commands::pause_scan,
             commands::scanner_commands::resume_scan,
             commands::scanner_commands::cancel_scan,

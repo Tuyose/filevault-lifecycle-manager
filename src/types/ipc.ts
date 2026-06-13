@@ -68,3 +68,17 @@ export type ScanRun = {
   total_bytes: number;
   status: "completed" | "cancelled" | "error";
 };
+
+export type DuplicateFile = {
+  id: string;
+  path: string;
+  size_bytes: number;
+  modified_at: string | null;
+};
+
+export type DuplicateGroup = {
+  hash: string;
+  total_files: number;
+  total_wasted_bytes: number;
+  files: DuplicateFile[];
+};

@@ -5,12 +5,13 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::core::scanner::{ProgressCallback, ScanProgress, ScanSummary};
-use crate::db::repositories::scan_run_repository::ScanRunRepository;
+use crate::db::repositories::file_repository::FileRepository;
 use crate::db::repositories::file_repository::FileStats;
+use crate::db::repositories::scan_run_repository::ScanRunRepository;
 use crate::errors::AppError;
+use crate::models::duplicate_group::DuplicateGroup;
 use crate::models::scan_run::{ScanRun, ScanRunStatus};
 use crate::AppState;
-
 /// Placeholder — kept for backward compat. See `scan_folder`.
 #[derive(Debug, Serialize)]
 pub struct ScanPreview {
@@ -126,4 +127,14 @@ pub fn resume_scan(state: tauri::State<'_, AppState>) {
 pub fn cancel_scan(state: tauri::State<'_, AppState>) {
     state.scan_controller.cancel();
     log::info!("scan cancelled by user");
+}
+
+/// Return all duplicate groups (files sharing the same BLAKE3 hash).
+#[tauri::command]
+pub async fn get_duplicate_groups(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<DuplicateGroup>, String> {
+    let pool = state.database.pool().clone();
+    let repo = FileRepository::new(pool);
+    repo.find_duplicate_groups().await.map_err(|err| err.to_string())
 }
